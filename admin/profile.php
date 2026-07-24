@@ -6,7 +6,7 @@ require_once '../includes/profile_photo.php';
 
 if (
     !isset($_SESSION['role']) ||
-    $_SESSION['role'] !== 'official'
+    $_SESSION['role'] !== 'admin'
 ) {
     header('Location: ../login.php');
     exit();
@@ -21,40 +21,22 @@ if ($userID <= 0) {
     exit();
 }
 
-function getOfficialProfile(
+function getAdminProfile(
     mysqli $conn,
     int $userID
 ): ?array {
 
     $sql = "
         SELECT
-            co.admNo,
-            co.officialName,
-            co.position,
-            co.email,
-            co.phone,
-            co.clubNumber,
-            co.isChair,
-            co.createdAt,
-
-            c.clubName,
-            c.clubDescription,
-
-            u.username,
-            u.profilePhoto,
-            u.status AS accountStatus,
-            u.createdAt AS accountCreatedAt
-
-        FROM club_officials co
-
-        INNER JOIN users u
-            ON co.userID = u.userID
-
-        INNER JOIN clubs c
-            ON co.clubNumber = c.clubNumber
-
-        WHERE co.userID = ?
-
+            userID,
+            username,
+            role,
+            status,
+            profilePhoto,
+            createdAt
+        FROM users
+        WHERE userID = ?
+          AND role = 'admin'
         LIMIT 1
     ";
 
@@ -84,29 +66,18 @@ function getOfficialProfile(
     return $profile ?: null;
 }
 
-$official =
-    getOfficialProfile(
+$admin =
+    getAdminProfile(
         $conn,
         $userID
     );
 
-if (!$official) {
-    die(
-        'Your official profile could not be found.'
-    );
+if (!$admin) {
+    die('Administrator account not found.');
 }
 
-$officialName =
-    $official['officialName'];
-
 $username =
-    $official['username'];
-
-$email =
-    $official['email'] ?? '';
-
-$phone =
-    $official['phone'] ?? '';
+    $admin['username'];
 
 $errors = [];
 
@@ -114,12 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action =
         $_POST['action'] ?? '';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Upload photo
-    |--------------------------------------------------------------------------
-    */
 
     if ($action === 'update_photo') {
 
@@ -142,14 +107,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     uploadProfilePhoto(
                         $_FILES['profilePhoto'],
                         $userID,
-                        $official['profilePhoto'] ?? null
+                        $admin['profilePhoto'] ?? null
                     );
 
                 $sql = "
                     UPDATE users
                     SET profilePhoto = ?
                     WHERE userID = ?
-                      AND role = 'official'
+                      AND role = 'admin'
                 ";
 
                 $stmt =
@@ -196,22 +161,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Remove photo
-    |--------------------------------------------------------------------------
-    */
-
     elseif ($action === 'remove_photo') {
 
         $currentPhoto =
-            $official['profilePhoto'] ?? null;
+            $admin['profilePhoto'] ?? null;
 
         $sql = "
             UPDATE users
             SET profilePhoto = NULL
             WHERE userID = ?
-              AND role = 'official'
+              AND role = 'admin'
         ";
 
         $stmt =
@@ -220,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$stmt) {
 
             $errors[] =
-                'Unable to prepare the photo removal.';
+                'Unable to prepare photo removal.';
 
         } else {
 
@@ -254,30 +213,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update profile
-    |--------------------------------------------------------------------------
-    */
-
     elseif ($action === 'update_profile') {
-
-        $officialName =
-            trim($_POST['officialName'] ?? '');
 
         $username =
             trim($_POST['username'] ?? '');
-
-        $email =
-            trim($_POST['email'] ?? '');
-
-        $phone =
-            trim($_POST['phone'] ?? '');
-
-        if ($officialName === '') {
-            $errors[] =
-                'Official name is required.';
-        }
 
         if (
             !preg_match(
@@ -286,29 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )
         ) {
             $errors[] =
-                'Enter a valid username containing 3 to 50 characters.';
-        }
-
-        if (
-            $email !== '' &&
-            !filter_var(
-                $email,
-                FILTER_VALIDATE_EMAIL
-            )
-        ) {
-            $errors[] =
-                'Enter a valid email address.';
-        }
-
-        if (
-            $phone !== '' &&
-            !preg_match(
-                '/^[0-9+\-\s()]{7,20}$/',
-                $phone
-            )
-        ) {
-            $errors[] =
-                'Enter a valid phone number.';
+                'Enter a valid username.';
         }
 
         if (empty($errors)) {
@@ -346,102 +263,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($errors)) {
 
-            mysqli_begin_transaction($conn);
+            $sql = "
+                UPDATE users
+                SET username = ?
+                WHERE userID = ?
+                  AND role = 'admin'
+            ";
 
-            try {
+            $stmt =
+                mysqli_prepare($conn, $sql);
 
-                $sql = "
-                    UPDATE users
-                    SET username = ?
-                    WHERE userID = ?
-                      AND role = 'official'
-                ";
+            mysqli_stmt_bind_param(
+                $stmt,
+                'si',
+                $username,
+                $userID
+            );
 
-                $stmt =
-                    mysqli_prepare($conn, $sql);
-
-                if (!$stmt) {
-                    throw new RuntimeException(
-                        'Unable to prepare the account update.'
-                    );
-                }
-
-                mysqli_stmt_bind_param(
-                    $stmt,
-                    'si',
-                    $username,
-                    $userID
-                );
-
-                if (!mysqli_stmt_execute($stmt)) {
-                    throw new RuntimeException(
-                        'Unable to update the username.'
-                    );
-                }
+            if (mysqli_stmt_execute($stmt)) {
 
                 mysqli_stmt_close($stmt);
-
-                $sql = "
-                    UPDATE club_officials
-                    SET
-                        officialName = ?,
-                        email = NULLIF(?, ''),
-                        phone = NULLIF(?, '')
-                    WHERE userID = ?
-                ";
-
-                $stmt =
-                    mysqli_prepare($conn, $sql);
-
-                if (!$stmt) {
-                    throw new RuntimeException(
-                        'Unable to prepare the profile update.'
-                    );
-                }
-
-                mysqli_stmt_bind_param(
-                    $stmt,
-                    'sssi',
-                    $officialName,
-                    $email,
-                    $phone,
-                    $userID
-                );
-
-                if (!mysqli_stmt_execute($stmt)) {
-                    throw new RuntimeException(
-                        'Unable to update the profile.'
-                    );
-                }
-
-                mysqli_stmt_close($stmt);
-
-                mysqli_commit($conn);
 
                 $_SESSION['username'] =
                     $username;
 
                 $_SESSION['success'] =
-                    'Profile updated successfully.';
+                    'Administrator profile updated successfully.';
 
                 header('Location: profile.php');
                 exit();
 
-            } catch (Throwable $exception) {
-
-                mysqli_rollback($conn);
+            } else {
 
                 $errors[] =
-                    $exception->getMessage();
+                    'Unable to update the profile.';
+
+                mysqli_stmt_close($stmt);
             }
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Change password
-    |--------------------------------------------------------------------------
-    */
 
     elseif ($action === 'change_password') {
 
@@ -461,22 +321,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (strlen($newPassword) < 8) {
             $errors[] =
-                'New password must contain at least 8 characters.';
+                'The password must contain at least 8 characters.';
         }
 
         if (!preg_match('/[A-Z]/', $newPassword)) {
             $errors[] =
-                'New password must contain an uppercase letter.';
+                'The password must contain an uppercase letter.';
         }
 
         if (!preg_match('/[a-z]/', $newPassword)) {
             $errors[] =
-                'New password must contain a lowercase letter.';
+                'The password must contain a lowercase letter.';
         }
 
         if (!preg_match('/[0-9]/', $newPassword)) {
             $errors[] =
-                'New password must contain a number.';
+                'The password must contain a number.';
         }
 
         if ($newPassword !== $confirmPassword) {
@@ -490,7 +350,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SELECT password
                 FROM users
                 WHERE userID = ?
-                  AND role = 'official'
+                  AND role = 'admin'
                 LIMIT 1
             ";
 
@@ -536,7 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($errors)) {
 
-            $passwordHash =
+            $hash =
                 password_hash(
                     $newPassword,
                     PASSWORD_DEFAULT
@@ -546,7 +406,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 UPDATE users
                 SET password = ?
                 WHERE userID = ?
-                  AND role = 'official'
+                  AND role = 'admin'
             ";
 
             $stmt =
@@ -555,7 +415,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mysqli_stmt_bind_param(
                 $stmt,
                 'si',
-                $passwordHash,
+                $hash,
                 $userID
             );
 
@@ -580,8 +440,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$official =
-    getOfficialProfile(
+$admin =
+    getAdminProfile(
         $conn,
         $userID
     );
@@ -594,8 +454,8 @@ require_once '../includes/sidebar.php';
 
     <div class="page-header">
         <div>
-            <h1>My Profile</h1>
-            <p>Manage your official account.</p>
+            <h1>Administrator Profile</h1>
+            <p>Manage your administrator account.</p>
         </div>
 
         <a
@@ -621,15 +481,11 @@ require_once '../includes/sidebar.php';
     <?php if (!empty($errors)): ?>
 
         <div class="alert alert-danger">
-
             <?php foreach ($errors as $error): ?>
-
                 <p>
                     <?= htmlspecialchars($error); ?>
                 </p>
-
             <?php endforeach; ?>
-
         </div>
 
     <?php endif; ?>
@@ -658,17 +514,15 @@ require_once '../includes/sidebar.php';
 
                             <?php if (
                                 !empty(
-                                    $official['profilePhoto']
+                                    $admin['profilePhoto']
                                 )
                             ): ?>
 
                                 <img
                                     src="../<?= htmlspecialchars(
-                                        $official[
-                                            'profilePhoto'
-                                        ]
+                                        $admin['profilePhoto']
                                     ); ?>"
-                                    alt="Profile photo"
+                                    alt="Administrator profile photo"
                                     class="profile-photo-image"
                                     id="profilePhotoPreview"
                                 >
@@ -682,9 +536,7 @@ require_once '../includes/sidebar.php';
                                     <?= htmlspecialchars(
                                         strtoupper(
                                             substr(
-                                                $official[
-                                                    'officialName'
-                                                ],
+                                                $admin['username'],
                                                 0,
                                                 1
                                             )
@@ -725,7 +577,6 @@ require_once '../includes/sidebar.php';
                         class="profile-photo-actions"
                         id="profilePhotoActions"
                     >
-
                         <span
                             id="profilePhotoName"
                             class="profile-photo-filename"
@@ -749,13 +600,12 @@ require_once '../includes/sidebar.php';
                             </button>
 
                         </div>
-
                     </div>
 
                 </form>
 
                 <?php if (
-                    !empty($official['profilePhoto'])
+                    !empty($admin['profilePhoto'])
                 ): ?>
 
                     <form
@@ -783,63 +633,39 @@ require_once '../includes/sidebar.php';
 
             <h2>
                 <?= htmlspecialchars(
-                    $official['officialName']
+                    $admin['username']
                 ); ?>
             </h2>
 
             <p class="profile-position">
-                <?= htmlspecialchars(
-                    $official['position']
-                ); ?>
+                System Administrator
             </p>
 
             <span
-                class="badge <?= $official['accountStatus'] ===
+                class="badge <?= $admin['status'] ===
                 'Active'
                     ? 'badge-success'
                     : 'badge-danger'; ?>"
             >
                 <?= htmlspecialchars(
-                    $official['accountStatus']
+                    $admin['status']
                 ); ?>
             </span>
 
             <div class="profile-summary-details">
 
                 <div>
-                    <strong>Admission Number</strong>
-                    <span>
-                        <?= htmlspecialchars(
-                            $official['admNo']
-                        ); ?>
-                    </span>
+                    <strong>Account Role</strong>
+                    <span>Administrator</span>
                 </div>
 
                 <div>
-                    <strong>Club</strong>
-                    <span>
-                        <?= htmlspecialchars(
-                            $official['clubName']
-                        ); ?>
-                    </span>
-                </div>
-
-                <div>
-                    <strong>Position</strong>
-                    <span>
-                        <?= htmlspecialchars(
-                            $official['position']
-                        ); ?>
-                    </span>
-                </div>
-
-                <div>
-                    <strong>Member Since</strong>
+                    <strong>Account Created</strong>
                     <span>
                         <?= date(
                             'd M Y',
                             strtotime(
-                                $official['createdAt']
+                                $admin['createdAt']
                             )
                         ); ?>
                     </span>
@@ -854,7 +680,7 @@ require_once '../includes/sidebar.php';
             <div class="card">
 
                 <div class="section-header">
-                    <h2>Personal Information</h2>
+                    <h2>Account Information</h2>
                 </div>
 
                 <form method="POST">
@@ -866,22 +692,6 @@ require_once '../includes/sidebar.php';
                     >
 
                     <div class="form-grid">
-
-                        <div class="form-group">
-                            <label for="officialName">
-                                Full Name
-                            </label>
-
-                            <input
-                                type="text"
-                                id="officialName"
-                                name="officialName"
-                                value="<?= htmlspecialchars(
-                                    $officialName
-                                ); ?>"
-                                required
-                            >
-                        </div>
 
                         <div class="form-group">
                             <label for="username">
@@ -900,32 +710,36 @@ require_once '../includes/sidebar.php';
                         </div>
 
                         <div class="form-group">
-                            <label for="email">
-                                Email
-                            </label>
-
+                            <label>Role</label>
                             <input
-                                type="email"
-                                id="email"
-                                name="email"
-                                value="<?= htmlspecialchars(
-                                    $email
-                                ); ?>"
+                                type="text"
+                                value="Administrator"
+                                disabled
                             >
                         </div>
 
                         <div class="form-group">
-                            <label for="phone">
-                                Phone
-                            </label>
-
+                            <label>Account Status</label>
                             <input
                                 type="text"
-                                id="phone"
-                                name="phone"
                                 value="<?= htmlspecialchars(
-                                    $phone
+                                    $admin['status']
                                 ); ?>"
+                                disabled
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label>Created On</label>
+                            <input
+                                type="text"
+                                value="<?= date(
+                                    'd M Y',
+                                    strtotime(
+                                        $admin['createdAt']
+                                    )
+                                ); ?>"
+                                disabled
                             >
                         </div>
 
@@ -955,6 +769,8 @@ require_once '../includes/sidebar.php';
 </div>
 
 <?php
+
 require '../includes/profile_javascript.php';
 require_once '../includes/footer.php';
+
 ?>

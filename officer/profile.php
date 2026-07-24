@@ -6,7 +6,7 @@ require_once '../includes/profile_photo.php';
 
 if (
     !isset($_SESSION['role']) ||
-    $_SESSION['role'] !== 'official'
+    $_SESSION['role'] !== 'officer'
 ) {
     header('Location: ../login.php');
     exit();
@@ -21,39 +21,38 @@ if ($userID <= 0) {
     exit();
 }
 
-function getOfficialProfile(
+function getOfficerProfile(
     mysqli $conn,
     int $userID
 ): ?array {
 
     $sql = "
         SELECT
-            co.admNo,
-            co.officialName,
-            co.position,
-            co.email,
-            co.phone,
-            co.clubNumber,
-            co.isChair,
-            co.createdAt,
-
-            c.clubName,
-            c.clubDescription,
+            o.officerStaffNo,
+            o.officerName,
+            o.officerRole,
+            o.availability,
+            o.proxyOfficerStaffNo,
+            o.createdAt,
 
             u.username,
             u.profilePhoto,
             u.status AS accountStatus,
-            u.createdAt AS accountCreatedAt
+            u.createdAt AS accountCreatedAt,
 
-        FROM club_officials co
+            p.officerName AS proxyOfficerName,
+            p.officerRole AS proxyOfficerRole
+
+        FROM officers o
 
         INNER JOIN users u
-            ON co.userID = u.userID
+            ON o.userID = u.userID
 
-        INNER JOIN clubs c
-            ON co.clubNumber = c.clubNumber
+        LEFT JOIN officers p
+            ON o.proxyOfficerStaffNo =
+               p.officerStaffNo
 
-        WHERE co.userID = ?
+        WHERE o.userID = ?
 
         LIMIT 1
     ";
@@ -84,29 +83,30 @@ function getOfficialProfile(
     return $profile ?: null;
 }
 
-$official =
-    getOfficialProfile(
+$officer =
+    getOfficerProfile(
         $conn,
         $userID
     );
 
-if (!$official) {
-    die(
-        'Your official profile could not be found.'
-    );
+if (!$officer) {
+    die('Officer profile not found.');
 }
 
-$officialName =
-    $official['officialName'];
+$staffNo =
+    $officer['officerStaffNo'];
+
+$officerName =
+    $officer['officerName'];
 
 $username =
-    $official['username'];
+    $officer['username'];
 
-$email =
-    $official['email'] ?? '';
+$availability =
+    $officer['availability'];
 
-$phone =
-    $official['phone'] ?? '';
+$proxyOfficerStaffNo =
+    $officer['proxyOfficerStaffNo'] ?? '';
 
 $errors = [];
 
@@ -114,12 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action =
         $_POST['action'] ?? '';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Upload photo
-    |--------------------------------------------------------------------------
-    */
 
     if ($action === 'update_photo') {
 
@@ -142,14 +136,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     uploadProfilePhoto(
                         $_FILES['profilePhoto'],
                         $userID,
-                        $official['profilePhoto'] ?? null
+                        $officer['profilePhoto'] ?? null
                     );
 
                 $sql = "
                     UPDATE users
                     SET profilePhoto = ?
                     WHERE userID = ?
-                      AND role = 'official'
+                      AND role = 'officer'
                 ";
 
                 $stmt =
@@ -196,22 +190,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Remove photo
-    |--------------------------------------------------------------------------
-    */
-
     elseif ($action === 'remove_photo') {
 
         $currentPhoto =
-            $official['profilePhoto'] ?? null;
+            $officer['profilePhoto'] ?? null;
 
         $sql = "
             UPDATE users
             SET profilePhoto = NULL
             WHERE userID = ?
-              AND role = 'official'
+              AND role = 'officer'
         ";
 
         $stmt =
@@ -220,7 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$stmt) {
 
             $errors[] =
-                'Unable to prepare the photo removal.';
+                'Unable to prepare photo removal.';
 
         } else {
 
@@ -254,29 +242,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update profile
-    |--------------------------------------------------------------------------
-    */
-
     elseif ($action === 'update_profile') {
 
-        $officialName =
-            trim($_POST['officialName'] ?? '');
+        $officerName =
+            trim($_POST['officerName'] ?? '');
 
         $username =
             trim($_POST['username'] ?? '');
 
-        $email =
-            trim($_POST['email'] ?? '');
+        $availability =
+            trim($_POST['availability'] ?? '');
 
-        $phone =
-            trim($_POST['phone'] ?? '');
+        $proxyOfficerStaffNo =
+            trim(
+                $_POST['proxyOfficerStaffNo'] ?? ''
+            );
 
-        if ($officialName === '') {
+        if ($officerName === '') {
             $errors[] =
-                'Official name is required.';
+                'Officer name is required.';
         }
 
         if (
@@ -286,29 +270,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )
         ) {
             $errors[] =
-                'Enter a valid username containing 3 to 50 characters.';
+                'Enter a valid username.';
         }
 
         if (
-            $email !== '' &&
-            !filter_var(
-                $email,
-                FILTER_VALIDATE_EMAIL
+            !in_array(
+                $availability,
+                ['Available', 'Unavailable'],
+                true
             )
         ) {
             $errors[] =
-                'Enter a valid email address.';
+                'Select a valid availability status.';
         }
 
         if (
-            $phone !== '' &&
-            !preg_match(
-                '/^[0-9+\-\s()]{7,20}$/',
-                $phone
-            )
+            $availability === 'Unavailable' &&
+            $proxyOfficerStaffNo === ''
         ) {
             $errors[] =
-                'Enter a valid phone number.';
+                'Select a proxy officer before becoming unavailable.';
+        }
+
+        if ($proxyOfficerStaffNo === $staffNo) {
+            $errors[] =
+                'You cannot select yourself as proxy.';
         }
 
         if (empty($errors)) {
@@ -344,6 +330,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mysqli_stmt_close($stmt);
         }
 
+        if (
+            empty($errors) &&
+            $proxyOfficerStaffNo !== ''
+        ) {
+
+            $sql = "
+                SELECT
+                    officerStaffNo,
+                    availability
+                FROM officers
+                WHERE officerStaffNo = ?
+                  AND officerStaffNo <> ?
+                LIMIT 1
+            ";
+
+            $stmt =
+                mysqli_prepare($conn, $sql);
+
+            mysqli_stmt_bind_param(
+                $stmt,
+                'ss',
+                $proxyOfficerStaffNo,
+                $staffNo
+            );
+
+            mysqli_stmt_execute($stmt);
+
+            $result =
+                mysqli_stmt_get_result($stmt);
+
+            $proxy =
+                mysqli_fetch_assoc($result);
+
+            mysqli_stmt_close($stmt);
+
+            if (!$proxy) {
+                $errors[] =
+                    'The selected proxy was not found.';
+
+            } elseif (
+                $availability === 'Unavailable' &&
+                $proxy['availability'] !== 'Available'
+            ) {
+                $errors[] =
+                    'The selected proxy must be available.';
+            }
+        }
+
         if (empty($errors)) {
 
             mysqli_begin_transaction($conn);
@@ -354,17 +388,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     UPDATE users
                     SET username = ?
                     WHERE userID = ?
-                      AND role = 'official'
+                      AND role = 'officer'
                 ";
 
                 $stmt =
                     mysqli_prepare($conn, $sql);
-
-                if (!$stmt) {
-                    throw new RuntimeException(
-                        'Unable to prepare the account update.'
-                    );
-                }
 
                 mysqli_stmt_bind_param(
                     $stmt,
@@ -375,42 +403,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if (!mysqli_stmt_execute($stmt)) {
                     throw new RuntimeException(
-                        'Unable to update the username.'
+                        'Unable to update username.'
                     );
                 }
 
                 mysqli_stmt_close($stmt);
 
                 $sql = "
-                    UPDATE club_officials
+                    UPDATE officers
                     SET
-                        officialName = ?,
-                        email = NULLIF(?, ''),
-                        phone = NULLIF(?, '')
+                        officerName = ?,
+                        availability = ?,
+                        proxyOfficerStaffNo =
+                            NULLIF(?, '')
                     WHERE userID = ?
                 ";
 
                 $stmt =
                     mysqli_prepare($conn, $sql);
 
-                if (!$stmt) {
-                    throw new RuntimeException(
-                        'Unable to prepare the profile update.'
-                    );
-                }
-
                 mysqli_stmt_bind_param(
                     $stmt,
                     'sssi',
-                    $officialName,
-                    $email,
-                    $phone,
+                    $officerName,
+                    $availability,
+                    $proxyOfficerStaffNo,
                     $userID
                 );
 
                 if (!mysqli_stmt_execute($stmt)) {
                     throw new RuntimeException(
-                        'Unable to update the profile.'
+                        'Unable to update officer profile.'
                     );
                 }
 
@@ -422,7 +445,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $username;
 
                 $_SESSION['success'] =
-                    'Profile updated successfully.';
+                    'Officer profile updated successfully.';
 
                 header('Location: profile.php');
                 exit();
@@ -436,12 +459,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Change password
-    |--------------------------------------------------------------------------
-    */
 
     elseif ($action === 'change_password') {
 
@@ -461,22 +478,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (strlen($newPassword) < 8) {
             $errors[] =
-                'New password must contain at least 8 characters.';
+                'The password must contain at least 8 characters.';
         }
 
         if (!preg_match('/[A-Z]/', $newPassword)) {
             $errors[] =
-                'New password must contain an uppercase letter.';
+                'The password must contain an uppercase letter.';
         }
 
         if (!preg_match('/[a-z]/', $newPassword)) {
             $errors[] =
-                'New password must contain a lowercase letter.';
+                'The password must contain a lowercase letter.';
         }
 
         if (!preg_match('/[0-9]/', $newPassword)) {
             $errors[] =
-                'New password must contain a number.';
+                'The password must contain a number.';
         }
 
         if ($newPassword !== $confirmPassword) {
@@ -490,7 +507,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SELECT password
                 FROM users
                 WHERE userID = ?
-                  AND role = 'official'
+                  AND role = 'officer'
                 LIMIT 1
             ";
 
@@ -536,7 +553,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($errors)) {
 
-            $passwordHash =
+            $hash =
                 password_hash(
                     $newPassword,
                     PASSWORD_DEFAULT
@@ -546,7 +563,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 UPDATE users
                 SET password = ?
                 WHERE userID = ?
-                  AND role = 'official'
+                  AND role = 'officer'
             ";
 
             $stmt =
@@ -555,7 +572,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mysqli_stmt_bind_param(
                 $stmt,
                 'si',
-                $passwordHash,
+                $hash,
                 $userID
             );
 
@@ -580,11 +597,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$official =
-    getOfficialProfile(
+$officer =
+    getOfficerProfile(
         $conn,
         $userID
     );
+
+$proxySql = "
+    SELECT
+        officerStaffNo,
+        officerName,
+        officerRole,
+        availability
+    FROM officers
+    WHERE officerStaffNo <> ?
+    ORDER BY officerName
+";
+
+$proxyStmt =
+    mysqli_prepare($conn, $proxySql);
+
+mysqli_stmt_bind_param(
+    $proxyStmt,
+    's',
+    $staffNo
+);
+
+mysqli_stmt_execute($proxyStmt);
+
+$proxyResult =
+    mysqli_stmt_get_result($proxyStmt);
 
 require_once '../includes/header.php';
 require_once '../includes/sidebar.php';
@@ -595,7 +637,7 @@ require_once '../includes/sidebar.php';
     <div class="page-header">
         <div>
             <h1>My Profile</h1>
-            <p>Manage your official account.</p>
+            <p>Manage your officer account.</p>
         </div>
 
         <a
@@ -621,15 +663,11 @@ require_once '../includes/sidebar.php';
     <?php if (!empty($errors)): ?>
 
         <div class="alert alert-danger">
-
             <?php foreach ($errors as $error): ?>
-
                 <p>
                     <?= htmlspecialchars($error); ?>
                 </p>
-
             <?php endforeach; ?>
-
         </div>
 
     <?php endif; ?>
@@ -658,17 +696,17 @@ require_once '../includes/sidebar.php';
 
                             <?php if (
                                 !empty(
-                                    $official['profilePhoto']
+                                    $officer['profilePhoto']
                                 )
                             ): ?>
 
                                 <img
                                     src="../<?= htmlspecialchars(
-                                        $official[
+                                        $officer[
                                             'profilePhoto'
                                         ]
                                     ); ?>"
-                                    alt="Profile photo"
+                                    alt="Officer profile photo"
                                     class="profile-photo-image"
                                     id="profilePhotoPreview"
                                 >
@@ -682,8 +720,8 @@ require_once '../includes/sidebar.php';
                                     <?= htmlspecialchars(
                                         strtoupper(
                                             substr(
-                                                $official[
-                                                    'officialName'
+                                                $officer[
+                                                    'officerName'
                                                 ],
                                                 0,
                                                 1
@@ -725,7 +763,6 @@ require_once '../includes/sidebar.php';
                         class="profile-photo-actions"
                         id="profilePhotoActions"
                     >
-
                         <span
                             id="profilePhotoName"
                             class="profile-photo-filename"
@@ -749,13 +786,12 @@ require_once '../includes/sidebar.php';
                             </button>
 
                         </div>
-
                     </div>
 
                 </form>
 
                 <?php if (
-                    !empty($official['profilePhoto'])
+                    !empty($officer['profilePhoto'])
                 ): ?>
 
                     <form
@@ -783,63 +819,71 @@ require_once '../includes/sidebar.php';
 
             <h2>
                 <?= htmlspecialchars(
-                    $official['officialName']
+                    $officer['officerName']
                 ); ?>
             </h2>
 
             <p class="profile-position">
                 <?= htmlspecialchars(
-                    $official['position']
+                    $officer['officerRole']
                 ); ?>
             </p>
 
             <span
-                class="badge <?= $official['accountStatus'] ===
+                class="badge <?= $officer['accountStatus'] ===
                 'Active'
                     ? 'badge-success'
                     : 'badge-danger'; ?>"
             >
                 <?= htmlspecialchars(
-                    $official['accountStatus']
+                    $officer['accountStatus']
                 ); ?>
             </span>
 
             <div class="profile-summary-details">
 
                 <div>
-                    <strong>Admission Number</strong>
+                    <strong>Staff Number</strong>
                     <span>
                         <?= htmlspecialchars(
-                            $official['admNo']
+                            $officer['officerStaffNo']
                         ); ?>
                     </span>
                 </div>
 
                 <div>
-                    <strong>Club</strong>
+                    <strong>Availability</strong>
                     <span>
                         <?= htmlspecialchars(
-                            $official['clubName']
+                            $officer['availability']
                         ); ?>
                     </span>
                 </div>
 
                 <div>
-                    <strong>Position</strong>
+                    <strong>Proxy Officer</strong>
                     <span>
-                        <?= htmlspecialchars(
-                            $official['position']
-                        ); ?>
+                        <?= !empty(
+                            $officer['proxyOfficerName']
+                        )
+                            ? htmlspecialchars(
+                                $officer[
+                                    'proxyOfficerName'
+                                ]
+                            )
+                            : 'Not assigned'; ?>
                     </span>
                 </div>
 
                 <div>
-                    <strong>Member Since</strong>
+                    <strong>Account Created</strong>
                     <span>
                         <?= date(
                             'd M Y',
                             strtotime(
-                                $official['createdAt']
+                                $officer[
+                                    'accountCreatedAt'
+                                ]
                             )
                         ); ?>
                     </span>
@@ -854,7 +898,7 @@ require_once '../includes/sidebar.php';
             <div class="card">
 
                 <div class="section-header">
-                    <h2>Personal Information</h2>
+                    <h2>Officer Information</h2>
                 </div>
 
                 <form method="POST">
@@ -868,16 +912,16 @@ require_once '../includes/sidebar.php';
                     <div class="form-grid">
 
                         <div class="form-group">
-                            <label for="officialName">
-                                Full Name
+                            <label for="officerName">
+                                Officer Name
                             </label>
 
                             <input
                                 type="text"
-                                id="officialName"
-                                name="officialName"
+                                id="officerName"
+                                name="officerName"
                                 value="<?= htmlspecialchars(
-                                    $officialName
+                                    $officerName
                                 ); ?>"
                                 required
                             >
@@ -900,33 +944,92 @@ require_once '../includes/sidebar.php';
                         </div>
 
                         <div class="form-group">
-                            <label for="email">
-                                Email
+                            <label for="availability">
+                                Availability
                             </label>
 
-                            <input
-                                type="email"
-                                id="email"
-                                name="email"
-                                value="<?= htmlspecialchars(
-                                    $email
-                                ); ?>"
+                            <select
+                                id="availability"
+                                name="availability"
+                                required
                             >
+                                <option
+                                    value="Available"
+                                    <?= $availability ===
+                                    'Available'
+                                        ? 'selected'
+                                        : ''; ?>
+                                >
+                                    Available
+                                </option>
+
+                                <option
+                                    value="Unavailable"
+                                    <?= $availability ===
+                                    'Unavailable'
+                                        ? 'selected'
+                                        : ''; ?>
+                                >
+                                    Unavailable
+                                </option>
+                            </select>
                         </div>
 
                         <div class="form-group">
-                            <label for="phone">
-                                Phone
+                            <label for="proxyOfficerStaffNo">
+                                Proxy Officer
                             </label>
 
-                            <input
-                                type="text"
-                                id="phone"
-                                name="phone"
-                                value="<?= htmlspecialchars(
-                                    $phone
-                                ); ?>"
+                            <select
+                                id="proxyOfficerStaffNo"
+                                name="proxyOfficerStaffNo"
                             >
+                                <option value="">
+                                    No proxy selected
+                                </option>
+
+                                <?php while (
+                                    $proxy =
+                                        mysqli_fetch_assoc(
+                                            $proxyResult
+                                        )
+                                ): ?>
+
+                                    <option
+                                        value="<?= htmlspecialchars(
+                                            $proxy[
+                                                'officerStaffNo'
+                                            ]
+                                        ); ?>"
+                                        <?= $proxyOfficerStaffNo ===
+                                        $proxy[
+                                            'officerStaffNo'
+                                        ]
+                                            ? 'selected'
+                                            : ''; ?>
+                                    >
+                                        <?= htmlspecialchars(
+                                            $proxy[
+                                                'officerName'
+                                            ]
+                                        ); ?>
+                                        —
+                                        <?= htmlspecialchars(
+                                            $proxy[
+                                                'officerRole'
+                                            ]
+                                        ); ?>
+                                        (
+                                        <?= htmlspecialchars(
+                                            $proxy[
+                                                'availability'
+                                            ]
+                                        ); ?>
+                                        )
+                                    </option>
+
+                                <?php endwhile; ?>
+                            </select>
                         </div>
 
                     </div>
@@ -955,6 +1058,10 @@ require_once '../includes/sidebar.php';
 </div>
 
 <?php
+
+mysqli_stmt_close($proxyStmt);
+
 require '../includes/profile_javascript.php';
 require_once '../includes/footer.php';
+
 ?>

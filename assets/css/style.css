@@ -860,3 +860,206 @@ textarea {
         width: 100%;
     }
 }
+
+.officer-summary-card {
+    margin-bottom: 24px;
+}
+
+.officer-details-grid {
+    display: grid;
+    grid-template-columns: repeat(
+        3,
+        minmax(160px, 1fr)
+    );
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.officer-details-grid strong {
+    display: block;
+    margin-bottom: 7px;
+    color: #475569;
+}
+
+.officer-details-grid p {
+    margin: 0;
+}
+
+.officer-stat-link {
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.2s ease;
+}
+
+.officer-stat-link:hover {
+    transform: translateY(-2px);
+}
+
+@media (max-width: 800px) {
+
+    .officer-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.profile-photo-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 22px;
+}
+
+.profile-photo-section form {
+    margin: 0;
+}
+
+.profile-avatar-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.profile-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 112px;
+    height: 112px;
+    overflow: hidden;
+    background: #2563eb;
+    border: 3px solid #e2e8f0;
+    border-radius: 50%;
+}
+
+.profile-avatar-letter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: #ffffff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 43px;
+    font-weight: 700;
+}
+
+.profile-photo-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+}
+
+.profile-photo-image.hidden {
+    display: none;
+}
+
+.profile-photo-plus {
+    position: absolute;
+    right: -1px;
+    bottom: 4px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 29px;
+    height: 29px;
+    padding: 0;
+
+    color: #ffffff;
+    cursor: pointer;
+    background: #3693ef;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.25);
+
+    transition:
+        background 0.2s ease,
+        transform 0.2s ease;
+}
+
+.profile-photo-plus span {
+    display: block;
+    margin-top: -2px;
+    font-family: Arial, sans-serif;
+    font-size: 23px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.profile-photo-plus:hover {
+    background: #1d7fd5;
+    transform: scale(1.08);
+}
+
+.profile-photo-plus:active {
+    transform: scale(0.96);
+}
+
+.profile-photo-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.profile-photo-actions {
+    display: none;
+    width: 100%;
+    max-width: 230px;
+    margin-top: 14px;
+    padding: 12px;
+
+    text-align: center;
+
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.profile-photo-actions.show {
+    display: block;
+}
+
+.profile-photo-filename {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+    overflow: hidden;
+
+    color: #64748b;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-photo-action-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.remove-photo-form {
+    margin-top: 9px !important;
+    text-align: center;
+}
+
+.profile-photo-remove {
+    padding: 0;
+
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 600;
+
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.profile-photo-remove:hover {
+    color: #991b1b;
+    text-decoration: underline;
+}

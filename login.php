@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit();
 
                 case 'officer':
-                    header('Location: officer/officer_dashboard.php');
+                    header('Location: officer/dashboard.php');
                     exit();
 
                 default:

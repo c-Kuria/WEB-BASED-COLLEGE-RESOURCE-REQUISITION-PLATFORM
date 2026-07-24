@@ -74,6 +74,15 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                 Reports
             </a>
 
+            <a
+                href="/resource_requisition/admin/profile.php"
+                class="<?= $currentPage === 'profile.php'
+                    ? 'active'
+                    : ''; ?>"
+            >
+                My Profile
+            </a>
+
         <?php elseif (
             isset($_SESSION['role']) &&
             $_SESSION['role'] === 'official'
@@ -159,6 +168,15 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                     : ''; ?>"
             >
                 Delegated Requests
+            </a>
+
+            <a
+                href="/resource_requisition/officer/profile.php"
+                class="<?= $currentPage === 'profile.php'
+                    ? 'active'
+                    : ''; ?>"
+            >
+                My Profile
             </a>
 
         <?php endif; ?>
