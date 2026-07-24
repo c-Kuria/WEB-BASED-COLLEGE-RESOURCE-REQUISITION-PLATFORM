@@ -1,119 +1,146 @@
 <?php
-session_start();
-include 'config/db.php';
 
-$error = "";
+require_once 'includes/session.php';
+require_once 'config/db.php';
 
-if(isset($_POST['login'])){
+$error = '';
 
-    $email = trim($_POST['email']);
-    $password = $_POST['password'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $sql = "SELECT * FROM users WHERE email=? LIMIT 1";
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    $stmt = mysqli_prepare($conn,$sql);
+    if ($username === '' || $password === '') {
+        $error = 'Enter both username and password.';
+    } else {
 
-    mysqli_stmt_bind_param($stmt,"s",$email);
+        $sql = "
+            SELECT
+                userID,
+                username,
+                password,
+                role,
+                status
+            FROM users
+            WHERE username = ?
+            LIMIT 1
+        ";
 
-    mysqli_stmt_execute($stmt);
+        $stmt = mysqli_prepare($conn, $sql);
 
-    $result = mysqli_stmt_get_result($stmt);
-
-    if(mysqli_num_rows($result)==1){
-
-        $user=mysqli_fetch_assoc($result);
-
-        if($user['status']!="Active"){
-
-            $error="Account has been deactivated.";
-
+        if (!$stmt) {
+            die('Unable to prepare login query: ' . mysqli_error($conn));
         }
 
-        elseif(password_verify($password,$user['password'])){
+        mysqli_stmt_bind_param($stmt, 's', $username);
+        mysqli_stmt_execute($stmt);
 
-            $_SESSION['user_id']=$user['user_id'];
-            $_SESSION['full_name']=$user['full_name'];
-            $_SESSION['role']=$user['role'];
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
 
-            switch($user['role']){
+        mysqli_stmt_close($stmt);
 
-                case "admin":
-                    header("Location: admin/dashboard.php");
-                    break;
+        if (!$user) {
+            $error = 'Invalid username or password.';
+        } elseif ($user['status'] !== 'Active') {
+            $error = 'This account is inactive.';
+        } elseif (!password_verify($password, $user['password'])) {
+            $error = 'Invalid username or password.';
+        } else {
 
-                case "secretary":
-                    header("Location: secretary/dashboard.php");
-                    break;
+            session_regenerate_id(true);
 
-                case "officer":
-                    header("Location: officer/dashboard.php");
-                    break;
+            $_SESSION['userID'] = (int) $user['userID'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['role'] = strtolower($user['role']);
 
+            switch ($_SESSION['role']) {
+
+                case 'admin':
+                    header('Location: admin/admin_dashboard.php');
+                    exit();
+
+                case 'official':
+                    header('Location: official/secretary_dashboard.php');
+                    exit();
+
+                case 'officer':
+                    header('Location: officer/officer_dashboard.php');
+                    exit();
+
+                default:
+                    session_destroy();
+                    $error = 'Invalid account role.';
             }
-
-            exit();
-
-        }else{
-
-            $error="Incorrect password.";
-
         }
-
-    }else{
-
-        $error="User not found.";
-
     }
-
 }
-
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-<title>Login</title>
-<link rel="stylesheet" href="/resource_requisition/assets/css/style.css?v=20260722">
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Login</title>
+
+    <link
+        rel="stylesheet"
+        href="assets/css/style.css"
+    >
 </head>
 
 <body>
 
-<h2>Login</h2>
+<div class="login-container">
 
-<?php
-if($error!=""){
-    echo "<p style='color:red;'>$error</p>";
-}
-?>
+    <div class="login-card">
 
-<form method="POST">
+        <h1>System Login</h1>
 
-<input
-type="email"
-name="email"
-placeholder="Email"
-required>
+        <?php if ($error !== ''): ?>
+            <div class="alert alert-danger">
+                <?= htmlspecialchars($error); ?>
+            </div>
+        <?php endif; ?>
 
-<br><br>
+        <form method="POST" action="">
 
-<input
-type="password"
-name="password"
-placeholder="Password"
-required>
+            <div class="form-group">
+                <label for="username">Username</label>
 
-<br><br>
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    required
+                >
+            </div>
 
-<button
-type="submit"
-name="login">
+            <div class="form-group">
+                <label for="password">Password</label>
 
-Login
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    required
+                >
+            </div>
 
-</button>
+            <button type="submit" class="btn btn-primary">
+                Login
+            </button>
 
-</form>
+        </form>
+
+    </div>
+
+</div>
 
 </body>
-
 </html>

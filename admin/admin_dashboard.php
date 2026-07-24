@@ -1,5 +1,8 @@
 <?php
 
+// error_reporting(E_ALL);
+// ini_set('display_errors', '1')
+
 require_once '../includes/session.php';
 
 if ($_SESSION['role'] != 'admin') {
@@ -17,7 +20,7 @@ $clubs = mysqli_fetch_assoc(mysqli_query($conn,
 "SELECT COUNT(*) total FROM clubs"))['total'];
 
 $students = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total FROM students"))['total'];
+"SELECT COUNT(*) total FROM club_officials"))['total'];
 
 $officers = mysqli_fetch_assoc(mysqli_query($conn,
 "SELECT COUNT(*) total FROM officers"))['total'];
@@ -35,27 +38,36 @@ $approved = mysqli_fetch_assoc(mysqli_query($conn,
 FROM requisitions
 WHERE status='Approved'"))['total'];
 
-$recent = mysqli_query($conn,"
-SELECT
+$recent = mysqli_query(
+    $conn,
+    "
+        SELECT
+            r.requisitionID,
+            r.requisitionNumber,
+            r.requestTime,
+            r.status,
+            co.officialName,
+            c.clubName,
+            res.resourceName
+        FROM requisitions r
 
-r.requisitionID,
+        INNER JOIN club_officials co
+            ON r.submittedByAdmNo = co.admNo
 
-c.clubName,
+        INNER JOIN clubs c
+            ON co.clubNumber = c.clubNumber
 
-r.status
+        INNER JOIN resources res
+            ON r.resourceID = res.resourceID
 
-FROM requisitions r
+        ORDER BY r.requestTime DESC
+        LIMIT 5
+    "
+);
 
-JOIN students s
-ON r.clubChairAdmNo=s.clubChairAdmNo
-
-JOIN clubs c
-ON s.clubNumber=c.clubNumber
-
-ORDER BY r.requestTime DESC
-
-LIMIT 5
-");
+if (!$recent) {
+    die('Recent requisitions query failed: ' . mysqli_error($conn));
+}
 
 ?>
 
@@ -71,8 +83,8 @@ LIMIT 5
 </div>
 
 <div class="card">
-<h3>Students</h3>
-<h1><?= $students ?></h1>
+    <h3>Club Officials</h3>
+    <h1><?= (int) $officials; ?></h1>
 </div>
 
 <div class="card">
@@ -91,6 +103,11 @@ LIMIT 5
 </div>
 
 <div class="card">
+    <h3>Rejected Requisitions</h3>
+    <h1><?= (int) $rejected; ?></h1>
+</div>
+
+<div class="card">
 <h3>Approved Requisitions</h3>
 <h1><?= $approved ?></h1>
 </div>
@@ -103,31 +120,78 @@ LIMIT 5
 
 <h2>Recent Requisitions</h2>
 
-<table>
+<table class="data-table">
 
-<tr>
+    <thead>
+        <tr>
+            <th>Requisition</th>
+            <th>Club</th>
+            <th>Submitted By</th>
+            <th>Resource</th>
+            <th>Status</th>
+            <th>Date</th>
+        </tr>
+    </thead>
 
-<th>ID</th>
+    <tbody>
 
-<th>Club</th>
+        <?php if (mysqli_num_rows($recent) > 0): ?>
 
-<th>Status</th>
+            <?php while ($row = mysqli_fetch_assoc($recent)): ?>
 
-</tr>
+                <tr>
+                    <td>
+                        <?php
+                        if (!empty($row['requisitionNumber'])) {
+                            echo htmlspecialchars($row['requisitionNumber']);
+                        } else {
+                            echo 'RQ-' . str_pad(
+                                $row['requisitionID'],
+                                3,
+                                '0',
+                                STR_PAD_LEFT
+                            );
+                        }
+                        ?>
+                    </td>
 
-<?php while($row=mysqli_fetch_assoc($recent)){ ?>
+                    <td>
+                        <?= htmlspecialchars($row['clubName']); ?>
+                    </td>
 
-<tr>
+                    <td>
+                        <?= htmlspecialchars($row['officialName']); ?>
+                    </td>
 
-<td>RQ-<?= str_pad($row['requisitionID'],3,"0",STR_PAD_LEFT); ?></td>
+                    <td>
+                        <?= htmlspecialchars($row['resourceName']); ?>
+                    </td>
 
-<td><?= htmlspecialchars($row['clubName']); ?></td>
+                    <td>
+                        <?= htmlspecialchars($row['status']); ?>
+                    </td>
 
-<td><?= htmlspecialchars($row['status']); ?></td>
+                    <td>
+                        <?= date(
+                            'd M Y',
+                            strtotime($row['requestTime'])
+                        ); ?>
+                    </td>
+                </tr>
 
-</tr>
+            <?php endwhile; ?>
 
-<?php } ?>
+        <?php else: ?>
+
+            <tr>
+                <td colspan="6" class="empty-state">
+                    No requisitions have been submitted yet.
+                </td>
+            </tr>
+
+        <?php endif; ?>
+
+    </tbody>
 
 </table>
 

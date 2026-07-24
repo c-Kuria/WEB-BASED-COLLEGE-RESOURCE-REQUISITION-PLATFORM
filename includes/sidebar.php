@@ -1,25 +1,33 @@
-<div class="sidebar">
+<ul>
+    
+<?php if ($_SESSION['role'] === 'admin'): ?>
 
-    <h2>Administrator</h2>
+    <a href="../admin/admin_dashboard.php">
+        Dashboard
+    </a>
 
-    <a href="dashboard.php">Dashboard</a>
+    <a href="../admin/clubs.php">
+        Manage Clubs
+    </a>
 
-    <a href="users.php">Users</a>
+    <a href="../admin/officials.php">
+        Manage Club Officials
+    </a>
 
-    <a href="clubs.php">Clubs</a>
+    <a href="../admin/officers.php">
+        Manage Officers
+    </a>
 
-    <a href="positions.php">Manage Positions</a>
+    <a href="../admin/resources.php">
+        Manage Resources
+    </a>
 
-    <a href="resource_categories.php">Resource Categories</a>
+    <a href="../admin/reports.php">
+        Reports
+    </a>
 
-    <a href="resources.php">Manage Resources</a>
+<?php endif; ?>
 
-    <a href="officers.php">Officers</a>
+<li><a href="../logout.php">Logout</a></li>
 
-    <a href="approval_workflow.php">Approval Workflow</a>
-
-    <a href="reports.php">Reports</a>
-
-    <a href="../logout.php">Logout</a>
-
-</div>
+</ul>
