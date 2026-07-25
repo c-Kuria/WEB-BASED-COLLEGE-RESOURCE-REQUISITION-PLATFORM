@@ -75,72 +75,197 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+$loginError =
+    $loginError ?? '';
+
+$username =
+    $username ?? '';
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
-    <title>Login</title>
+
+    <title>
+        Login | Resource Requisition
+    </title>
 
     <link
         rel="stylesheet"
-        href="assets/css/style.css"
+        href="/resource_requisition/assets/css/style.css"
     >
+
 </head>
 
-<body>
+<body class="login-body">
 
-<div class="login-container">
+<div class="simple-login-page">
 
-    <div class="login-card">
+    <div class="simple-login-background-shape shape-one"></div>
+    <div class="simple-login-background-shape shape-two"></div>
 
-        <h1>System Login</h1>
+    <div class="simple-login-container">
 
-        <?php if ($error !== ''): ?>
-            <div class="alert alert-danger">
-                <?= htmlspecialchars($error); ?>
+        <a
+            href="/resource_requisition/login.php"
+            class="simple-login-logo"
+        >
+
+            <span class="simple-login-logo-mark">
+                RR
+            </span>
+
+            <span class="simple-login-logo-text">
+
+                <strong>
+                    Resource Requisition
+                </strong>
+
+                <small>
+                    College Management System
+                </small>
+
+            </span>
+
+        </a>
+
+        <div class="simple-login-card">
+
+            <div class="simple-login-header">
+
+                <h1>Sign in</h1>
+
+                <p>
+                    Enter your account details to continue.
+                </p>
+
             </div>
-        <?php endif; ?>
 
-        <form method="POST" action="">
+            <?php if ($loginError !== ''): ?>
 
-            <div class="form-group">
-                <label for="username">Username</label>
+                <div class="alert alert-danger">
+                    <?= htmlspecialchars($loginError); ?>
+                </div>
 
-                <input
-                    type="text"
-                    id="username"
-                    name="username"
-                    required
+            <?php endif; ?>
+
+            <form
+                method="POST"
+                class="simple-login-form"
+            >
+
+                <div class="form-group">
+
+                    <label for="username">
+                        Username
+                    </label>
+
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        value="<?= htmlspecialchars(
+                            $username
+                        ); ?>"
+                        placeholder="Enter your username"
+                        autocomplete="username"
+                        required
+                        autofocus
+                    >
+
+                </div>
+
+                <div class="form-group">
+
+                    <label for="password">
+                        Password
+                    </label>
+
+                    <div class="password-input-wrapper">
+
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Enter your password"
+                            autocomplete="current-password"
+                            required
+                        >
+
+                        <button
+                            type="button"
+                            class="password-toggle"
+                            data-target="password"
+                        >
+                            Show
+                        </button>
+
+                    </div>
+
+                </div>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary simple-login-button"
                 >
-            </div>
+                    Sign In
+                </button>
 
-            <div class="form-group">
-                <label for="password">Password</label>
+            </form>
 
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    required
-                >
-            </div>
+        </div>
 
-            <button type="submit" class="btn btn-primary">
-                Login
-            </button>
-
-        </form>
+        <p class="simple-login-footer">
+            Authorized users only
+        </p>
 
     </div>
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const passwordButtons =
+        document.querySelectorAll('.password-toggle');
+
+    passwordButtons.forEach(function (button) {
+
+        button.addEventListener('click', function () {
+
+            const input =
+                document.getElementById(
+                    button.dataset.target
+                );
+
+            if (!input) {
+                return;
+            }
+
+            if (input.type === 'password') {
+
+                input.type = 'text';
+                button.textContent = 'Hide';
+
+            } else {
+
+                input.type = 'password';
+                button.textContent = 'Show';
+            }
+        });
+    });
+});
+</script>
 
 </body>
 </html>

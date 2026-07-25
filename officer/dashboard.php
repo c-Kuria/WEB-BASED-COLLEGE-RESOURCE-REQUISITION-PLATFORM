@@ -11,218 +11,198 @@ if (
     exit();
 }
 
-$userID = (int) ($_SESSION['userID'] ?? 0);
+$userID =
+    (int) ($_SESSION['userID'] ?? 0);
 
-if ($userID <= 0) {
-    session_destroy();
-    header('Location: ../login.php');
-    exit();
-}
+$pageTitle = 'Officer Dashboard';
 
-/*
-|--------------------------------------------------------------------------
-| Retrieve logged-in officer
-|--------------------------------------------------------------------------
-*/
-
-$officerSql = "
+$profileSql = "
     SELECT
         o.officerStaffNo,
         o.officerName,
         o.officerRole,
         o.availability,
         o.proxyOfficerStaffNo,
-        u.username,
+
         u.status AS accountStatus,
+
         proxy.officerName AS proxyOfficerName,
         proxy.officerRole AS proxyOfficerRole
+
     FROM officers o
 
     INNER JOIN users u
         ON o.userID = u.userID
 
     LEFT JOIN officers proxy
-        ON o.proxyOfficerStaffNo = proxy.officerStaffNo
+        ON o.proxyOfficerStaffNo =
+           proxy.officerStaffNo
 
     WHERE o.userID = ?
 
     LIMIT 1
 ";
 
-$officerStmt = mysqli_prepare($conn, $officerSql);
-
-if (!$officerStmt) {
-    die(
-        'Unable to prepare officer profile query: ' .
-        mysqli_error($conn)
+$profileStmt =
+    mysqli_prepare(
+        $conn,
+        $profileSql
     );
-}
 
 mysqli_stmt_bind_param(
-    $officerStmt,
+    $profileStmt,
     'i',
     $userID
 );
 
-mysqli_stmt_execute($officerStmt);
-
-$officerResult =
-    mysqli_stmt_get_result($officerStmt);
-
-$officer =
-    mysqli_fetch_assoc($officerResult);
-
-mysqli_stmt_close($officerStmt);
-
-if (!$officer) {
-    die(
-        'Your officer profile could not be found. ' .
-        'Contact the administrator.'
-    );
-}
-
-$staffNo = $officer['officerStaffNo'];
-
-/*
-|--------------------------------------------------------------------------
-| Dashboard totals
-|--------------------------------------------------------------------------
-*/
-
-$countSql = "
-    SELECT
-        SUM(
-            CASE
-                WHEN a.officerStaffNo = ?
-                 AND a.assignedAs = 'Primary'
-                 AND a.status = 'Pending'
-                THEN 1
-                ELSE 0
-            END
-        ) AS pendingPrimary,
-
-        SUM(
-            CASE
-                WHEN a.actedBy = ?
-                 AND a.assignedAs = 'Proxy'
-                 AND a.status IN ('Pending', 'Delegated')
-                THEN 1
-                ELSE 0
-            END
-        ) AS delegatedPending,
-
-        SUM(
-            CASE
-                WHEN (
-                    a.officerStaffNo = ?
-                    OR a.actedBy = ?
-                )
-                AND a.status = 'Approved'
-                THEN 1
-                ELSE 0
-            END
-        ) AS approvedCount,
-
-        SUM(
-            CASE
-                WHEN (
-                    a.officerStaffNo = ?
-                    OR a.actedBy = ?
-                )
-                AND a.status = 'Rejected'
-                THEN 1
-                ELSE 0
-            END
-        ) AS rejectedCount
-
-    FROM approvals a
-";
-
-$countStmt = mysqli_prepare($conn, $countSql);
-
-if (!$countStmt) {
-    die(
-        'Unable to prepare dashboard totals: ' .
-        mysqli_error($conn)
-    );
-}
-
-mysqli_stmt_bind_param(
-    $countStmt,
-    'ssssss',
-    $staffNo,
-    $staffNo,
-    $staffNo,
-    $staffNo,
-    $staffNo,
-    $staffNo
+mysqli_stmt_execute(
+    $profileStmt
 );
 
-mysqli_stmt_execute($countStmt);
+$profileResult =
+    mysqli_stmt_get_result(
+        $profileStmt
+    );
 
-$countResult =
-    mysqli_stmt_get_result($countStmt);
+$officer =
+    mysqli_fetch_assoc(
+        $profileResult
+    );
 
-$countRow =
-    mysqli_fetch_assoc($countResult);
+mysqli_stmt_close(
+    $profileStmt
+);
 
-mysqli_stmt_close($countStmt);
+if (!$officer) {
+    die('Officer profile not found.');
+}
 
-$pendingPrimary =
-    (int) ($countRow['pendingPrimary'] ?? 0);
+$staffNo =
+    $officer['officerStaffNo'];
 
-$delegatedPending =
-    (int) ($countRow['delegatedPending'] ?? 0);
+function getOfficerApprovalCount(
+    mysqli $conn,
+    string $staffNo,
+    string $status,
+    string $assignedAs = ''
+): int {
+
+    if ($assignedAs !== '') {
+
+        $sql = "
+            SELECT COUNT(*)
+            FROM approvals
+            WHERE officerStaffNo = ?
+              AND status = ?
+              AND assignedAs = ?
+        ";
+
+        $stmt =
+            mysqli_prepare(
+                $conn,
+                $sql
+            );
+
+        mysqli_stmt_bind_param(
+            $stmt,
+            'sss',
+            $staffNo,
+            $status,
+            $assignedAs
+        );
+    } else {
+
+        $sql = "
+            SELECT COUNT(*)
+            FROM approvals
+            WHERE officerStaffNo = ?
+              AND status = ?
+        ";
+
+        $stmt =
+            mysqli_prepare(
+                $conn,
+                $sql
+            );
+
+        mysqli_stmt_bind_param(
+            $stmt,
+            'ss',
+            $staffNo,
+            $status
+        );
+    }
+
+    mysqli_stmt_execute($stmt);
+
+    $result =
+        mysqli_stmt_get_result($stmt);
+
+    $row =
+        mysqli_fetch_row($result);
+
+    mysqli_stmt_close($stmt);
+
+    return (int) ($row[0] ?? 0);
+}
+
+$pendingPrimaryCount =
+    getOfficerApprovalCount(
+        $conn,
+        $staffNo,
+        'Pending',
+        'Primary'
+    );
+
+$pendingProxyCount =
+    getOfficerApprovalCount(
+        $conn,
+        $staffNo,
+        'Pending',
+        'Proxy'
+    );
 
 $approvedCount =
-    (int) ($countRow['approvedCount'] ?? 0);
+    getOfficerApprovalCount(
+        $conn,
+        $staffNo,
+        'Approved'
+    );
 
 $rejectedCount =
-    (int) ($countRow['rejectedCount'] ?? 0);
+    getOfficerApprovalCount(
+        $conn,
+        $staffNo,
+        'Rejected'
+    );
 
-/*
-|--------------------------------------------------------------------------
-| Recent actionable requests
-|--------------------------------------------------------------------------
-*/
-
-$recentSql = "
+$latestSql = "
     SELECT
         a.approvalNumber,
+        a.assignedAs,
         a.approvalOrder,
         a.status AS approvalStatus,
-        a.assignedAs,
-        a.actedBy,
 
         r.requisitionID,
         r.requisitionNumber,
-        r.purpose,
+        r.requestTime,
         r.quantityRequested,
         r.startDate,
         r.endDate,
-        r.requestTime,
-        r.status AS requisitionStatus,
 
-        res.resourceName,
-        res.resourceCategory,
+        rs.resourceName,
+        rs.resourceCategory,
 
         co.officialName,
-        co.admNo,
-
-        c.clubName,
-
-        primaryOfficer.officerName
-            AS primaryOfficerName,
-        primaryOfficer.officerRole
-            AS primaryOfficerRole
+        c.clubName
 
     FROM approvals a
 
     INNER JOIN requisitions r
         ON a.requisitionID = r.requisitionID
 
-    INNER JOIN resources res
-        ON r.resourceID = res.resourceID
+    INNER JOIN resources rs
+        ON r.resourceID = rs.resourceID
 
     INNER JOIN club_officials co
         ON r.submittedByAdmNo = co.admNo
@@ -230,404 +210,183 @@ $recentSql = "
     INNER JOIN clubs c
         ON co.clubNumber = c.clubNumber
 
-    INNER JOIN officers primaryOfficer
-        ON a.officerStaffNo =
-           primaryOfficer.officerStaffNo
+    WHERE a.officerStaffNo = ?
+      AND a.status = 'Pending'
 
-    WHERE r.status = 'Pending'
-      AND a.status IN ('Pending', 'Delegated')
-      AND (
-          (
-              a.officerStaffNo = ?
-              AND a.assignedAs = 'Primary'
-          )
-          OR
-          (
-              a.actedBy = ?
-              AND a.assignedAs = 'Proxy'
-          )
-      )
+    ORDER BY r.requestTime DESC
 
-    ORDER BY r.requestTime ASC
-    LIMIT 5
+    LIMIT 6
 ";
 
-$recentStmt = mysqli_prepare($conn, $recentSql);
-
-if (!$recentStmt) {
-    die(
-        'Unable to prepare recent requests: ' .
-        mysqli_error($conn)
+$latestStmt =
+    mysqli_prepare(
+        $conn,
+        $latestSql
     );
-}
 
 mysqli_stmt_bind_param(
-    $recentStmt,
-    'ss',
-    $staffNo,
+    $latestStmt,
+    's',
     $staffNo
 );
 
-mysqli_stmt_execute($recentStmt);
+mysqli_stmt_execute(
+    $latestStmt
+);
 
-$recentResult =
-    mysqli_stmt_get_result($recentStmt);
+$latestResult =
+    mysqli_stmt_get_result(
+        $latestStmt
+    );
 
 require_once '../includes/header.php';
-require_once '../includes/sidebar.php';
 ?>
 
-<div class="main-content">
+<div class="page-header">
 
-    <div class="page-header">
+    <div>
+        <h1>Dashboard</h1>
 
-        <div>
-            <h1>Officer Dashboard</h1>
+        <!-- <p>
+            Review requests and manage your approval duties.
+        </p> -->
+    </div>
 
-            <p>
-                Welcome,
-                <?= htmlspecialchars(
-                    $officer['officerName']
-                ); ?>.
-                Review and process assigned requisitions.
-            </p>
-        </div>
+</div>
 
-        <a
-            href="pending_requests.php"
-            class="btn btn-primary"
-        >
-            View Pending Requests
-        </a>
+<div class="dashboard-welcome">
+
+    <div>
+
+        <span class="dashboard-welcome-label">
+            Approval workspace
+        </span>
+
+        <!-- <h2>
+            Welcome,
+            <?= htmlspecialchars(
+                $officer['officerName']
+            ); ?>
+        </h2> -->
+
+        <p>
+            Review pending and delegated requisitions assigned
+            to your office.
+        </p>
 
     </div>
 
-    <?php if (isset($_SESSION['success'])): ?>
+</div>
 
-        <div class="alert alert-success">
+<div class="dashboard-profile-strip">
+
+    <div class="dashboard-profile-main">
+
+        <div class="dashboard-profile-avatar">
             <?= htmlspecialchars(
-                $_SESSION['success']
+                strtoupper(
+                    substr(
+                        $officer['officerName'],
+                        0,
+                        1
+                    )
+                )
             ); ?>
         </div>
 
-        <?php unset($_SESSION['success']); ?>
+        <div>
 
-    <?php endif; ?>
-
-    <?php if (isset($_SESSION['error'])): ?>
-
-        <div class="alert alert-danger">
-            <?= htmlspecialchars(
-                $_SESSION['error']
-            ); ?>
-        </div>
-
-        <?php unset($_SESSION['error']); ?>
-
-    <?php endif; ?>
-
-    <div class="card officer-summary-card">
-
-        <div class="section-header">
             <h2>
                 <?= htmlspecialchars(
-                    $officer['officerRole']
+                    $officer['officerName']
                 ); ?>
             </h2>
 
             <p>
-                Staff number:
-                <?= htmlspecialchars($staffNo); ?>
+                <?= htmlspecialchars(
+                    $officer['officerRole']
+                ); ?>
             </p>
-        </div>
-
-        <div class="officer-details-grid">
-
-            <div>
-                <strong>Availability</strong>
-
-                <p>
-                    <span
-                        class="badge <?= $officer['availability'] ===
-                        'Available'
-                            ? 'badge-success'
-                            : 'badge-warning'; ?>"
-                    >
-                        <?= htmlspecialchars(
-                            $officer['availability']
-                        ); ?>
-                    </span>
-                </p>
-            </div>
-
-            <div>
-                <strong>Account Status</strong>
-
-                <p>
-                    <span
-                        class="badge <?= $officer['accountStatus'] ===
-                        'Active'
-                            ? 'badge-success'
-                            : 'badge-danger'; ?>"
-                    >
-                        <?= htmlspecialchars(
-                            $officer['accountStatus']
-                        ); ?>
-                    </span>
-                </p>
-            </div>
-
-            <div>
-                <strong>Proxy Officer</strong>
-
-                <p>
-                    <?php if (
-                        !empty($officer['proxyOfficerName'])
-                    ): ?>
-
-                        <?= htmlspecialchars(
-                            $officer['proxyOfficerName']
-                        ); ?>
-
-                        <br>
-
-                        <small class="text-muted">
-                            <?= htmlspecialchars(
-                                $officer['proxyOfficerRole']
-                            ); ?>
-                        </small>
-
-                    <?php else: ?>
-
-                        No proxy assigned
-
-                    <?php endif; ?>
-                </p>
-            </div>
 
         </div>
 
     </div>
 
-    <div class="stats-grid">
+    <div class="dashboard-profile-details">
 
-        <a
-            href="pending_requests.php"
-            class="stat-card officer-stat-link"
-        >
-            <h3>Pending Requests</h3>
+        <div class="dashboard-detail-item">
 
-            <div class="stat-number">
-                <?= $pendingPrimary; ?>
-            </div>
-        </a>
+            <span>Staff Number</span>
 
-        <a
-            href="delegated_requests.php"
-            class="stat-card officer-stat-link"
-        >
-            <h3>Delegated to Me</h3>
-
-            <div class="stat-number">
-                <?= $delegatedPending; ?>
-            </div>
-        </a>
-
-        <div class="stat-card">
-
-            <h3>Approved</h3>
-
-            <div class="stat-number">
-                <?= $approvedCount; ?>
-            </div>
-        </div>
-
-        <div class="stat-card">
-
-            <h3>Rejected</h3>
-
-            <div class="stat-number">
-                <?= $rejectedCount; ?>
-            </div>
-        </div>
-
-    </div>
-
-    <div class="card">
-
-        <div class="section-header section-header-row">
-
-            <div>
-                <h2>Requests Requiring Action</h2>
-
-                <p>
-                    Your latest primary and delegated approval
-                    assignments.
-                </p>
-            </div>
-
-            <a
-                href="pending_requests.php"
-                class="btn btn-secondary btn-small"
-            >
-                View All
-            </a>
+            <strong>
+                <?= htmlspecialchars(
+                    $officer['officerStaffNo']
+                ); ?>
+            </strong>
 
         </div>
 
-        <div class="table-responsive">
+        <div class="dashboard-detail-item">
 
-            <table class="data-table">
+            <span>Availability</span>
 
-                <thead>
-                    <tr>
-                        <th>Requisition</th>
-                        <th>Club</th>
-                        <th>Resource</th>
-                        <th>Stage</th>
-                        <th>Assignment</th>
-                        <th>Submitted</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
+            <strong>
 
-                <tbody>
+                <span
+                    class="badge <?= $officer['availability'] === 'Available'
+                                        ? 'badge-success'
+                                        : 'badge-danger'; ?>">
+                    <?= htmlspecialchars(
+                        $officer['availability']
+                    ); ?>
+                </span>
 
-                    <?php if (
-                        mysqli_num_rows($recentResult) > 0
-                    ): ?>
+            </strong>
 
-                        <?php while (
-                            $row =
-                                mysqli_fetch_assoc(
-                                    $recentResult
-                                )
-                        ): ?>
+        </div>
 
-                            <tr>
+        <div class="dashboard-detail-item">
 
-                                <td>
-                                    <strong>
-                                        <?= htmlspecialchars(
-                                            $row[
-                                                'requisitionNumber'
-                                            ]
-                                        ); ?>
-                                    </strong>
+            <span>Account Status</span>
 
-                                    <br>
+            <strong>
 
-                                    <small class="text-muted">
-                                        <?= htmlspecialchars(
-                                            $row[
-                                                'officialName'
-                                            ]
-                                        ); ?>
-                                    </small>
-                                </td>
+                <span
+                    class="badge <?= $officer['accountStatus'] === 'Active'
+                                        ? 'badge-success'
+                                        : 'badge-danger'; ?>">
+                    <?= htmlspecialchars(
+                        $officer['accountStatus']
+                    ); ?>
+                </span>
 
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['clubName']
-                                    ); ?>
-                                </td>
+            </strong>
 
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['resourceName']
-                                    ); ?>
+        </div>
 
-                                    <br>
+        <div class="dashboard-detail-item">
 
-                                    <small class="text-muted">
-                                        <?= htmlspecialchars(
-                                            $row[
-                                                'resourceCategory'
-                                            ]
-                                        ); ?>
-                                    </small>
-                                </td>
+            <span>Proxy Officer</span>
 
-                                <td>
-                                    Stage
-                                    <?= (int) $row[
-                                        'approvalOrder'
-                                    ]; ?>
-                                </td>
+            <strong>
+                <?= !empty($officer['proxyOfficerName'])
+                    ? htmlspecialchars(
+                        $officer['proxyOfficerName']
+                    )
+                    : 'Not assigned'; ?>
+            </strong>
 
-                                <td>
-                                    <?php if (
-                                        $row['assignedAs'] ===
-                                        'Proxy'
-                                    ): ?>
+            <?php if (
+                !empty($officer['proxyOfficerRole'])
+            ): ?>
 
-                                        <span class="badge badge-info">
-                                            Proxy
-                                        </span>
+                <small>
+                    <?= htmlspecialchars(
+                        $officer['proxyOfficerRole']
+                    ); ?>
+                </small>
 
-                                        <br>
-
-                                        <small class="text-muted">
-                                            For
-                                            <?= htmlspecialchars(
-                                                $row[
-                                                    'primaryOfficerName'
-                                                ]
-                                            ); ?>
-                                        </small>
-
-                                    <?php else: ?>
-
-                                        <span
-                                            class="badge badge-secondary"
-                                        >
-                                            Primary
-                                        </span>
-
-                                    <?php endif; ?>
-                                </td>
-
-                                <td>
-                                    <?= date(
-                                        'd M Y, H:i',
-                                        strtotime(
-                                            $row['requestTime']
-                                        )
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <a
-                                        href="review_request.php?approval=<?= (int) $row[
-                                            'approvalNumber'
-                                        ]; ?>"
-                                        class="btn btn-primary btn-small"
-                                    >
-                                        Review
-                                    </a>
-                                </td>
-
-                            </tr>
-
-                        <?php endwhile; ?>
-
-                    <?php else: ?>
-
-                        <tr>
-                            <td
-                                colspan="7"
-                                class="empty-state"
-                            >
-                                You currently have no requests
-                                requiring action.
-                            </td>
-                        </tr>
-
-                    <?php endif; ?>
-
-                </tbody>
-
-            </table>
+            <?php endif; ?>
 
         </div>
 
@@ -635,9 +394,295 @@ require_once '../includes/sidebar.php';
 
 </div>
 
+<div class="dashboard-stat-grid dashboard-stat-grid-four">
+
+    <a
+        href="pending_requests.php"
+        class="dashboard-stat-tile">
+
+        <div class="dashboard-stat-icon dashboard-icon-warning">
+            P
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Pending Requests
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $pendingPrimaryCount; ?>
+            </strong>
+
+            <small>
+                Primary approvals
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="delegated_requests.php"
+        class="dashboard-stat-tile">
+
+        <div class="dashboard-stat-icon">
+            D
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Delegated Requests
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $pendingProxyCount; ?>
+            </strong>
+
+            <small>
+                Proxy approvals
+            </small>
+
+        </div>
+
+    </a>
+
+    <div class="dashboard-stat-tile">
+
+        <div class="dashboard-stat-icon dashboard-icon-success">
+            A
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Approved
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $approvedCount; ?>
+            </strong>
+
+            <small>
+                Requests approved
+            </small>
+
+        </div>
+
+    </div>
+
+    <div class="dashboard-stat-tile">
+
+        <div class="dashboard-stat-icon dashboard-icon-danger">
+            R
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Rejected
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $rejectedCount; ?>
+            </strong>
+
+            <small>
+                Requests rejected
+            </small>
+
+        </div>
+
+    </div>
+
+</div>
+
+<div class="card dashboard-table-card">
+
+    <div class="section-header-row">
+
+        <div class="section-header">
+
+            <h2>Requests Requiring Action</h2>
+
+            <p>
+                Requisitions currently awaiting your decision.
+            </p>
+
+        </div>
+
+        <a
+            href="pending_requests.php"
+            class="btn btn-secondary btn-small">
+            View All
+        </a>
+
+    </div>
+
+    <div class="table-responsive">
+
+        <table class="data-table dashboard-data-table">
+
+            <thead>
+
+                <tr>
+                    <th>Requisition</th>
+                    <th>Submitted By</th>
+                    <th>Resource</th>
+                    <th>Required Period</th>
+                    <th>Assignment</th>
+                    <th>Action</th>
+                </tr>
+
+            </thead>
+
+            <tbody>
+
+                <?php if (
+                    mysqli_num_rows(
+                        $latestResult
+                    ) > 0
+                ): ?>
+
+                    <?php while (
+                        $request =
+                        mysqli_fetch_assoc(
+                            $latestResult
+                        )
+                    ): ?>
+
+                        <tr>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $request['requisitionNumber']
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= date(
+                                        'd M Y, H:i',
+                                        strtotime(
+                                            $request['requestTime']
+                                        )
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $request['officialName']
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= htmlspecialchars(
+                                        $request['clubName']
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $request['resourceName']
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    Quantity:
+                                    <?= (int) $request['quantityRequested']; ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+                                <?= date(
+                                    'd M Y',
+                                    strtotime(
+                                        $request['startDate']
+                                    )
+                                ); ?>
+
+                                <span class="table-date-separator">
+                                    –
+                                </span>
+
+                                <?= date(
+                                    'd M Y',
+                                    strtotime(
+                                        $request['endDate']
+                                    )
+                                ); ?>
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="badge <?= $request['assignedAs'] === 'Proxy'
+                                                        ? 'badge-info'
+                                                        : 'badge-secondary'; ?>">
+                                    <?= htmlspecialchars(
+                                        $request['assignedAs']
+                                    ); ?>
+                                </span>
+
+                            </td>
+
+                            <td>
+
+                                <div class="table-actions">
+
+                                    <a
+                                        href="review_request.php?id=<?= (int) $request['approvalNumber']; ?>"
+                                        class="btn btn-primary btn-small">
+                                        Review
+                                    </a>
+
+                                </div>
+
+                            </td>
+
+                        </tr>
+
+                    <?php endwhile; ?>
+
+                <?php else: ?>
+
+                    <tr>
+
+                        <td
+                            colspan="6"
+                            class="empty-state">
+                            You have no pending approval
+                            requests.
+                        </td>
+
+                    </tr>
+
+                <?php endif; ?>
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
 <?php
 
-mysqli_stmt_close($recentStmt);
+mysqli_stmt_close(
+    $latestStmt
+);
 
 require_once '../includes/footer.php';
 

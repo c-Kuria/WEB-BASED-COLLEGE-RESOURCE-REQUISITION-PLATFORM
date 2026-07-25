@@ -284,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mysqli_commit($conn);
 
             $_SESSION['success'] =
-                'Club official and login account created successfully.';
+                'Club official created successfully.';
 
             header('Location: officials.php');
             exit();
@@ -308,7 +308,7 @@ require_once '../includes/sidebar.php';
 
         <div>
             <h1>Add Club Official</h1>
-            <p>Create an official profile and login account.</p>
+            <p>Create a club official account.</p>
         </div>
 
         <a href="officials.php" class="btn btn-secondary">

@@ -11,21 +11,25 @@ if (
     exit();
 }
 
+$pageTitle = 'Reports';
+
 /*
 |--------------------------------------------------------------------------
-| Filter values
+| Validate filters
 |--------------------------------------------------------------------------
 */
 
-$dateFrom = trim($_GET['dateFrom'] ?? '');
-$dateTo = trim($_GET['dateTo'] ?? '');
-$statusFilter = trim($_GET['status'] ?? '');
-$categoryFilter = trim($_GET['category'] ?? '');
-$clubFilter = filter_input(
-    INPUT_GET,
-    'clubNumber',
-    FILTER_VALIDATE_INT
-);
+$statusFilter =
+    trim($_GET['status'] ?? '');
+
+$categoryFilter =
+    trim($_GET['category'] ?? '');
+
+$startDate =
+    trim($_GET['startDate'] ?? '');
+
+$endDate =
+    trim($_GET['endDate'] ?? '');
 
 $allowedStatuses = [
     'Pending',
@@ -45,115 +49,44 @@ $allowedCategories = [
 
 if (
     $statusFilter !== '' &&
-    !in_array($statusFilter, $allowedStatuses, true)
+    !in_array(
+        $statusFilter,
+        $allowedStatuses,
+        true
+    )
 ) {
     $statusFilter = '';
 }
 
 if (
     $categoryFilter !== '' &&
-    !in_array($categoryFilter, $allowedCategories, true)
+    !in_array(
+        $categoryFilter,
+        $allowedCategories,
+        true
+    )
 ) {
     $categoryFilter = '';
 }
 
-/*
-|--------------------------------------------------------------------------
-| Retrieve clubs for the filter
-|--------------------------------------------------------------------------
-*/
-
-$clubsResult = mysqli_query(
-    $conn,
-    "
-        SELECT
-            clubNumber,
-            clubName
-        FROM clubs
-        ORDER BY clubName
-    "
-);
-
-if (!$clubsResult) {
-    die('Unable to retrieve clubs: ' .
-        mysqli_error($conn));
+if (
+    $startDate !== '' &&
+    !preg_match(
+        '/^\d{4}-\d{2}-\d{2}$/',
+        $startDate
+    )
+) {
+    $startDate = '';
 }
 
-/*
-|--------------------------------------------------------------------------
-| Build report conditions
-|--------------------------------------------------------------------------
-*/
-
-$whereConditions = [];
-$parameterTypes = '';
-$parameterValues = [];
-
-if ($dateFrom !== '') {
-    $whereConditions[] = "DATE(r.requestTime) >= ?";
-    $parameterTypes .= 's';
-    $parameterValues[] = $dateFrom;
-}
-
-if ($dateTo !== '') {
-    $whereConditions[] = "DATE(r.requestTime) <= ?";
-    $parameterTypes .= 's';
-    $parameterValues[] = $dateTo;
-}
-
-if ($statusFilter !== '') {
-    $whereConditions[] = "r.status = ?";
-    $parameterTypes .= 's';
-    $parameterValues[] = $statusFilter;
-}
-
-if ($categoryFilter !== '') {
-    $whereConditions[] = "res.resourceCategory = ?";
-    $parameterTypes .= 's';
-    $parameterValues[] = $categoryFilter;
-}
-
-if ($clubFilter) {
-    $whereConditions[] = "c.clubNumber = ?";
-    $parameterTypes .= 'i';
-    $parameterValues[] = $clubFilter;
-}
-
-$whereSql = '';
-
-if (!empty($whereConditions)) {
-    $whereSql = ' WHERE ' . implode(
-        ' AND ',
-        $whereConditions
-    );
-}
-
-/*
-|--------------------------------------------------------------------------
-| Function for binding dynamic parameters
-|--------------------------------------------------------------------------
-*/
-
-function bindDynamicParameters(
-    mysqli_stmt $stmt,
-    string $types,
-    array &$values
-): void {
-    if ($types === '' || empty($values)) {
-        return;
-    }
-
-    $bindValues = [];
-    $bindValues[] = $types;
-
-    foreach ($values as $key => &$value) {
-        $bindValues[] = &$value;
-    }
-
-    call_user_func_array(
-        [$stmt, 'bind_param'],
-        $bindValues
-    );
+if (
+    $endDate !== '' &&
+    !preg_match(
+        '/^\d{4}-\d{2}-\d{2}$/',
+        $endDate
+    )
+) {
+    $endDate = '';
 }
 
 /*
@@ -168,102 +101,98 @@ $summarySql = "
 
         SUM(
             CASE
-                WHEN r.status = 'Pending'
+                WHEN status = 'Pending'
                 THEN 1
                 ELSE 0
             END
-        ) AS pendingTotal,
+        ) AS pendingRequisitions,
 
         SUM(
             CASE
-                WHEN r.status = 'Approved'
+                WHEN status = 'Approved'
                 THEN 1
                 ELSE 0
             END
-        ) AS approvedTotal,
+        ) AS approvedRequisitions,
 
         SUM(
             CASE
-                WHEN r.status = 'Rejected'
+                WHEN status = 'Rejected'
                 THEN 1
                 ELSE 0
             END
-        ) AS rejectedTotal,
+        ) AS rejectedRequisitions,
 
         SUM(
             CASE
-                WHEN r.status = 'Cancelled'
+                WHEN status = 'Cancelled'
                 THEN 1
                 ELSE 0
             END
-        ) AS cancelledTotal,
+        ) AS cancelledRequisitions,
 
-        COALESCE(
-            SUM(r.quantityRequested),
-            0
-        ) AS totalQuantityRequested
+        SUM(quantityRequested)
+            AS totalQuantityRequested
 
-    FROM requisitions r
-
-    INNER JOIN club_officials co
-        ON r.submittedByAdmNo = co.admNo
-
-    INNER JOIN clubs c
-        ON co.clubNumber = c.clubNumber
-
-    INNER JOIN resources res
-        ON r.resourceID = res.resourceID
-
-    $whereSql
+    FROM requisitions
 ";
 
-$summaryStmt = mysqli_prepare(
-    $conn,
-    $summarySql
-);
-
-if (!$summaryStmt) {
-    die('Unable to prepare report summary: ' .
-        mysqli_error($conn));
-}
-
-bindDynamicParameters(
-    $summaryStmt,
-    $parameterTypes,
-    $parameterValues
-);
-
-mysqli_stmt_execute($summaryStmt);
-
 $summaryResult =
-    mysqli_stmt_get_result($summaryStmt);
+    mysqli_query(
+        $conn,
+        $summarySql
+    );
 
 $summary =
-    mysqli_fetch_assoc($summaryResult);
-
-mysqli_stmt_close($summaryStmt);
+    mysqli_fetch_assoc(
+        $summaryResult
+    );
 
 $totalRequisitions =
-    (int) ($summary['totalRequisitions'] ?? 0);
+    (int) (
+        $summary[
+            'totalRequisitions'
+        ] ?? 0
+    );
 
-$pendingTotal =
-    (int) ($summary['pendingTotal'] ?? 0);
+$pendingRequisitions =
+    (int) (
+        $summary[
+            'pendingRequisitions'
+        ] ?? 0
+    );
 
-$approvedTotal =
-    (int) ($summary['approvedTotal'] ?? 0);
+$approvedRequisitions =
+    (int) (
+        $summary[
+            'approvedRequisitions'
+        ] ?? 0
+    );
 
-$rejectedTotal =
-    (int) ($summary['rejectedTotal'] ?? 0);
+$rejectedRequisitions =
+    (int) (
+        $summary[
+            'rejectedRequisitions'
+        ] ?? 0
+    );
 
-$cancelledTotal =
-    (int) ($summary['cancelledTotal'] ?? 0);
+$cancelledRequisitions =
+    (int) (
+        $summary[
+            'cancelledRequisitions'
+        ] ?? 0
+    );
 
 $totalQuantityRequested =
-    (int) ($summary['totalQuantityRequested'] ?? 0);
+    (int) (
+        $summary[
+            'totalQuantityRequested'
+        ] ?? 0
+    );
 
 /*
 |--------------------------------------------------------------------------
-| Detailed requisition report
+| Build report query
 |--------------------------------------------------------------------------
 */
 
@@ -278,784 +207,271 @@ $reportSql = "
         r.requestTime,
         r.status,
 
-        co.admNo,
+        rs.resourceName,
+        rs.resourceCategory,
+
         co.officialName,
+        co.admNo,
 
-        c.clubName,
-
-        res.resourceName,
-        res.resourceCategory
+        c.clubName
 
     FROM requisitions r
 
+    INNER JOIN resources rs
+        ON r.resourceID =
+           rs.resourceID
+
     INNER JOIN club_officials co
-        ON r.submittedByAdmNo = co.admNo
+        ON r.submittedByAdmNo =
+           co.admNo
 
     INNER JOIN clubs c
-        ON co.clubNumber = c.clubNumber
+        ON co.clubNumber =
+           c.clubNumber
 
-    INNER JOIN resources res
-        ON r.resourceID = res.resourceID
+    WHERE 1 = 1
+";
 
-    $whereSql
+$types = '';
+$params = [];
 
+if ($statusFilter !== '') {
+
+    $reportSql .= "
+        AND r.status = ?
+    ";
+
+    $types .= 's';
+    $params[] =
+        $statusFilter;
+}
+
+if ($categoryFilter !== '') {
+
+    $reportSql .= "
+        AND rs.resourceCategory = ?
+    ";
+
+    $types .= 's';
+    $params[] =
+        $categoryFilter;
+}
+
+if ($startDate !== '') {
+
+    $reportSql .= "
+        AND DATE(r.requestTime) >= ?
+    ";
+
+    $types .= 's';
+    $params[] =
+        $startDate;
+}
+
+if ($endDate !== '') {
+
+    $reportSql .= "
+        AND DATE(r.requestTime) <= ?
+    ";
+
+    $types .= 's';
+    $params[] =
+        $endDate;
+}
+
+$reportSql .= "
     ORDER BY r.requestTime DESC
 ";
 
-$reportStmt = mysqli_prepare(
-    $conn,
-    $reportSql
-);
+$reportStmt =
+    mysqli_prepare(
+        $conn,
+        $reportSql
+    );
 
 if (!$reportStmt) {
-    die('Unable to prepare requisition report: ' .
-        mysqli_error($conn));
+    die(
+        'Unable to prepare report query.'
+    );
 }
 
-bindDynamicParameters(
-    $reportStmt,
-    $parameterTypes,
-    $parameterValues
-);
+if ($types !== '') {
 
-mysqli_stmt_execute($reportStmt);
+    mysqli_stmt_bind_param(
+        $reportStmt,
+        $types,
+        ...$params
+    );
+}
+
+mysqli_stmt_execute(
+    $reportStmt
+);
 
 $reportResult =
-    mysqli_stmt_get_result($reportStmt);
-
-/*
-|--------------------------------------------------------------------------
-| Resource usage report
-|--------------------------------------------------------------------------
-*/
-
-$resourceSql = "
-    SELECT
-        res.resourceID,
-        res.resourceName,
-        res.resourceCategory,
-        res.resourceQuantityTotal,
-        res.resourceQuantityRemaining,
-
-        COUNT(r.requisitionID) AS requisitionCount,
-
-        COALESCE(
-            SUM(
-                CASE
-                    WHEN r.status = 'Approved'
-                    THEN r.quantityRequested
-                    ELSE 0
-                END
-            ),
-            0
-        ) AS approvedQuantity
-
-    FROM resources res
-
-    LEFT JOIN requisitions r
-        ON res.resourceID = r.resourceID
-
-    GROUP BY
-        res.resourceID,
-        res.resourceName,
-        res.resourceCategory,
-        res.resourceQuantityTotal,
-        res.resourceQuantityRemaining
-
-    ORDER BY requisitionCount DESC,
-             res.resourceName
-";
-
-$resourceResult = mysqli_query(
-    $conn,
-    $resourceSql
-);
-
-if (!$resourceResult) {
-    die('Unable to generate resource report: ' .
-        mysqli_error($conn));
-}
-
-/*
-|--------------------------------------------------------------------------
-| Club activity report
-|--------------------------------------------------------------------------
-*/
-
-$clubActivitySql = "
-    SELECT
-        c.clubNumber,
-        c.clubName,
-
-        COUNT(r.requisitionID) AS totalRequests,
-
-        SUM(
-            CASE
-                WHEN r.status = 'Approved'
-                THEN 1
-                ELSE 0
-            END
-        ) AS approvedRequests,
-
-        SUM(
-            CASE
-                WHEN r.status = 'Pending'
-                THEN 1
-                ELSE 0
-            END
-        ) AS pendingRequests,
-
-        SUM(
-            CASE
-                WHEN r.status = 'Rejected'
-                THEN 1
-                ELSE 0
-            END
-        ) AS rejectedRequests
-
-    FROM clubs c
-
-    LEFT JOIN club_officials co
-        ON c.clubNumber = co.clubNumber
-
-    LEFT JOIN requisitions r
-        ON co.admNo = r.submittedByAdmNo
-
-    GROUP BY
-        c.clubNumber,
-        c.clubName
-
-    ORDER BY totalRequests DESC,
-             c.clubName
-";
-
-$clubActivityResult = mysqli_query(
-    $conn,
-    $clubActivitySql
-);
-
-if (!$clubActivityResult) {
-    die('Unable to generate club report: ' .
-        mysqli_error($conn));
-}
+    mysqli_stmt_get_result(
+        $reportStmt
+    );
 
 require_once '../includes/header.php';
-require_once '../includes/sidebar.php';
 ?>
 
-<div class="main-content">
+<div class="page-header">
 
-    <div class="page-header">
+    <div>
 
-        <div>
-            <h1>Reports</h1>
+        <h1>Reports</h1>
 
-            <p>
-                View requisition activity, resource usage,
-                and club participation.
-            </p>
+        <p>
+            Review requisition activity and filter institutional
+            resource requests.
+        </p>
+
+    </div>
+
+</div>
+
+<div class="report-summary-grid">
+
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon">
+            T
         </div>
 
-        <button
-            type="button"
-            class="btn btn-secondary"
-            onclick="window.print();">
-            Print Report
-        </button>
+        <div class="report-summary-content">
 
-    </div>
+            <span>
+                Total Requisitions
+            </span>
 
-    <!-- Report filters -->
-
-    <div class="card report-filter-card">
-
-        <form
-            method="GET"
-            action="reports.php"
-            class="report-filter-form">
-
-            <div class="form-grid">
-
-                <div class="form-group">
-
-                    <label for="dateFrom">
-                        Date From
-                    </label>
-
-                    <input
-                        type="date"
-                        id="dateFrom"
-                        name="dateFrom"
-                        value="<?= htmlspecialchars($dateFrom); ?>">
-
-                </div>
-
-                <div class="form-group">
-
-                    <label for="dateTo">
-                        Date To
-                    </label>
-
-                    <input
-                        type="date"
-                        id="dateTo"
-                        name="dateTo"
-                        value="<?= htmlspecialchars($dateTo); ?>">
-
-                </div>
-
-                <div class="form-group">
-
-                    <label for="status">
-                        Requisition Status
-                    </label>
-
-                    <select
-                        id="status"
-                        name="status">
-
-                        <option value="">
-                            All Statuses
-                        </option>
-
-                        <?php foreach (
-                            $allowedStatuses as $status
-                        ): ?>
-
-                            <option
-                                value="<?= htmlspecialchars($status); ?>"
-                                <?= $statusFilter === $status
-                                    ? 'selected'
-                                    : ''; ?>>
-                                <?= htmlspecialchars($status); ?>
-                            </option>
-
-                        <?php endforeach; ?>
-
-                    </select>
-
-                </div>
-
-                <div class="form-group">
-
-                    <label for="category">
-                        Resource Category
-                    </label>
-
-                    <select
-                        id="category"
-                        name="category">
-
-                        <option value="">
-                            All Categories
-                        </option>
-
-                        <?php foreach (
-                            $allowedCategories as $category
-                        ): ?>
-
-                            <option
-                                value="<?= htmlspecialchars(
-                                            $category
-                                        ); ?>"
-                                <?= $categoryFilter === $category
-                                    ? 'selected'
-                                    : ''; ?>>
-                                <?= htmlspecialchars($category); ?>
-                            </option>
-
-                        <?php endforeach; ?>
-
-                    </select>
-
-                </div>
-
-                <div class="form-group">
-
-                    <label for="clubNumber">
-                        Club
-                    </label>
-
-                    <select
-                        id="clubNumber"
-                        name="clubNumber">
-
-                        <option value="">
-                            All Clubs
-                        </option>
-
-                        <?php while (
-                            $club = mysqli_fetch_assoc($clubsResult)
-                        ): ?>
-
-                            <option
-                                value="<?= (int) $club['clubNumber']; ?>"
-                                <?= (int) $clubFilter ===
-                                    (int) $club['clubNumber']
-                                    ? 'selected'
-                                    : ''; ?>>
-                                <?= htmlspecialchars(
-                                    $club['clubName']
-                                ); ?>
-                            </option>
-
-                        <?php endwhile; ?>
-
-                    </select>
-
-                </div>
-
-            </div>
-
-            <div class="form-actions">
-
-                <button
-                    type="submit"
-                    class="btn btn-primary">
-                    Generate Report
-                </button>
-
-                <a
-                    href="reports.php"
-                    class="btn btn-secondary">
-                    Clear Filters
-                </a>
-
-            </div>
-
-        </form>
-
-    </div>
-
-    <!-- Summary cards -->
-
-    <div class="stats-grid report-summary">
-
-        <div class="stat-card">
-            <h3>Total Requisitions</h3>
-
-            <div class="stat-number">
+            <strong>
                 <?= $totalRequisitions; ?>
-            </div>
+            </strong>
+
+            <small>
+                All submitted requests
+            </small>
+
         </div>
 
-        <div class="stat-card">
-            <h3>Pending</h3>
+    </div>
 
-            <div class="stat-number">
-                <?= $pendingTotal; ?>
-            </div>
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon report-icon-warning">
+            P
         </div>
 
-        <div class="stat-card">
-            <h3>Approved</h3>
+        <div class="report-summary-content">
 
-            <div class="stat-number">
-                <?= $approvedTotal; ?>
-            </div>
+            <span>
+                Pending
+            </span>
+
+            <strong>
+                <?= $pendingRequisitions; ?>
+            </strong>
+
+            <small>
+                Awaiting approval
+            </small>
+
         </div>
 
-        <div class="stat-card">
-            <h3>Rejected</h3>
+    </div>
 
-            <div class="stat-number">
-                <?= $rejectedTotal; ?>
-            </div>
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon report-icon-success">
+            A
         </div>
 
-        <div class="stat-card">
-            <h3>Cancelled</h3>
+        <div class="report-summary-content">
 
-            <div class="stat-number">
-                <?= $cancelledTotal; ?>
-            </div>
+            <span>
+                Approved
+            </span>
+
+            <strong>
+                <?= $approvedRequisitions; ?>
+            </strong>
+
+            <small>
+                Fully approved
+            </small>
+
         </div>
 
-        <div class="stat-card">
-            <h3>Quantity Requested</h3>
+    </div>
 
-            <div class="stat-number">
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon report-icon-danger">
+            R
+        </div>
+
+        <div class="report-summary-content">
+
+            <span>
+                Rejected
+            </span>
+
+            <strong>
+                <?= $rejectedRequisitions; ?>
+            </strong>
+
+            <small>
+                Declined requests
+            </small>
+
+        </div>
+
+    </div>
+
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon report-icon-secondary">
+            C
+        </div>
+
+        <div class="report-summary-content">
+
+            <span>
+                Cancelled
+            </span>
+
+            <strong>
+                <?= $cancelledRequisitions; ?>
+            </strong>
+
+            <small>
+                Cancelled requests
+            </small>
+
+        </div>
+
+    </div>
+
+    <div class="report-summary-tile">
+
+        <div class="report-summary-icon report-icon-info">
+            Q
+        </div>
+
+        <div class="report-summary-content">
+
+            <span>
+                Quantity Requested
+            </span>
+
+            <strong>
                 <?= $totalQuantityRequested; ?>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Detailed requisitions report -->
-
-    <div class="card report-section">
-
-        <div class="section-header">
-            <h2>Requisition Report</h2>
-
-            <p>
-                Detailed requisitions matching the selected filters.
-            </p>
-        </div>
-
-        <div class="table-responsive">
-
-            <table class="data-table">
-
-                <thead>
-                    <tr>
-                        <th>Requisition</th>
-                        <th>Club</th>
-                        <th>Submitted By</th>
-                        <th>Resource</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Required Dates</th>
-                        <th>Submitted</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    <?php if (
-                        mysqli_num_rows($reportResult) > 0
-                    ): ?>
-
-                        <?php while (
-                            $row = mysqli_fetch_assoc($reportResult)
-                        ): ?>
-
-                            <tr>
-
-                                <td>
-                                    <strong>
-                                        <?php
-                                        if (
-                                            !empty($row['requisitionNumber'])
-                                        ) {
-                                            echo htmlspecialchars(
-                                                $row['requisitionNumber']
-                                            );
-                                        } else {
-                                            echo 'RQ-' .
-                                                str_pad(
-                                                    $row['requisitionID'],
-                                                    4,
-                                                    '0',
-                                                    STR_PAD_LEFT
-                                                );
-                                        }
-                                        ?>
-                                    </strong>
-
-                                    <?php if (
-                                        !empty($row['purpose'])
-                                    ): ?>
-
-                                        <br>
-
-                                        <small class="text-muted">
-                                            <?= htmlspecialchars(
-                                                $row['purpose']
-                                            ); ?>
-                                        </small>
-
-                                    <?php endif; ?>
-                                </td>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['clubName']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['officialName']
-                                    ); ?>
-
-                                    <br>
-
-                                    <small class="text-muted">
-                                        <?= htmlspecialchars(
-                                            $row['admNo']
-                                        ); ?>
-                                    </small>
-                                </td>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['resourceName']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $row['resourceCategory']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $row['quantityRequested']; ?>
-                                </td>
-
-                                <td>
-                                    <?= date(
-                                        'd M Y',
-                                        strtotime($row['startDate'])
-                                    ); ?>
-
-                                    <br>
-
-                                    <small class="text-muted">
-                                        to
-                                        <?= date(
-                                            'd M Y',
-                                            strtotime($row['endDate'])
-                                        ); ?>
-                                    </small>
-                                </td>
-
-                                <td>
-                                    <?= date(
-                                        'd M Y H:i',
-                                        strtotime(
-                                            $row['requestTime']
-                                        )
-                                    ); ?>
-                                </td>
-
-                                <td>
-
-                                    <?php
-                                    $statusClass =
-                                        'badge-secondary';
-
-                                    if (
-                                        $row['status'] === 'Approved'
-                                    ) {
-                                        $statusClass =
-                                            'badge-success';
-                                    } elseif (
-                                        $row['status'] === 'Rejected'
-                                    ) {
-                                        $statusClass =
-                                            'badge-danger';
-                                    } elseif (
-                                        $row['status'] === 'Pending'
-                                    ) {
-                                        $statusClass =
-                                            'badge-warning';
-                                    }
-                                    ?>
-
-                                    <span
-                                        class="badge <?= $statusClass; ?>">
-                                        <?= htmlspecialchars(
-                                            $row['status']
-                                        ); ?>
-                                    </span>
-
-                                </td>
-
-                            </tr>
-
-                        <?php endwhile; ?>
-
-                    <?php else: ?>
-
-                        <tr>
-                            <td
-                                colspan="9"
-                                class="empty-state">
-                                No requisitions match the selected
-                                filters.
-                            </td>
-                        </tr>
-
-                    <?php endif; ?>
-
-                </tbody>
-
-            </table>
-
-        </div>
-
-    </div>
-
-    <!-- Resource usage -->
-
-    <div class="card report-section">
-
-        <div class="section-header">
-            <h2>Resource Usage Report</h2>
-
-            <p>
-                Requisition frequency and approved quantities
-                for each resource.
-            </p>
-        </div>
-
-        <div class="table-responsive">
-
-            <table class="data-table">
-
-                <thead>
-                    <tr>
-                        <th>Resource</th>
-                        <th>Category</th>
-                        <th>Total Quantity</th>
-                        <th>Remaining</th>
-                        <th>Total Requests</th>
-                        <th>Approved Quantity</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    <?php if (
-                        mysqli_num_rows($resourceResult) > 0
-                    ): ?>
-
-                        <?php while (
-                            $resource = mysqli_fetch_assoc(
-                                $resourceResult
-                            )
-                        ): ?>
-
-                            <tr>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $resource['resourceName']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $resource['resourceCategory']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $resource['resourceQuantityTotal']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $resource['resourceQuantityRemaining']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $resource['requisitionCount']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $resource['approvedQuantity']; ?>
-                                </td>
-
-                            </tr>
-
-                        <?php endwhile; ?>
-
-                    <?php else: ?>
-
-                        <tr>
-                            <td
-                                colspan="6"
-                                class="empty-state">
-                                No resources have been registered.
-                            </td>
-                        </tr>
-
-                    <?php endif; ?>
-
-                </tbody>
-
-            </table>
-
-        </div>
-
-    </div>
-
-    <!-- Club activity -->
-
-    <div class="card report-section">
-
-        <div class="section-header">
-            <h2>Club Activity Report</h2>
-
-            <p>
-                Requisition activity for each registered club.
-            </p>
-        </div>
-
-        <div class="table-responsive">
-
-            <table class="data-table">
-
-                <thead>
-                    <tr>
-                        <th>Club</th>
-                        <th>Total Requests</th>
-                        <th>Approved</th>
-                        <th>Pending</th>
-                        <th>Rejected</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    <?php if (
-                        mysqli_num_rows(
-                            $clubActivityResult
-                        ) > 0
-                    ): ?>
-
-                        <?php while (
-                            $club = mysqli_fetch_assoc(
-                                $clubActivityResult
-                            )
-                        ): ?>
-
-                            <tr>
-
-                                <td>
-                                    <?= htmlspecialchars(
-                                        $club['clubName']
-                                    ); ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $club['totalRequests']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $club['approvedRequests']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $club['pendingRequests']; ?>
-                                </td>
-
-                                <td>
-                                    <?= (int) $club['rejectedRequests']; ?>
-                                </td>
-
-                            </tr>
-
-                        <?php endwhile; ?>
-
-                    <?php else: ?>
-
-                        <tr>
-                            <td
-                                colspan="5"
-                                class="empty-state">
-                                No club activity is available.
-                            </td>
-                        </tr>
-
-                    <?php endif; ?>
-
-                </tbody>
-
-            </table>
+            </strong>
+
+            <small>
+                Combined requested units
+            </small>
 
         </div>
 
@@ -1063,9 +479,407 @@ require_once '../includes/sidebar.php';
 
 </div>
 
+<div class="card report-filter-card">
+
+    <div class="section-header">
+
+        <h2>Filter Report</h2>
+
+        <p>
+            Narrow the report by status, category or date.
+        </p>
+
+    </div>
+
+    <form
+        method="GET"
+        class="report-filter-form"
+    >
+
+        <div class="form-grid report-filter-grid">
+
+            <div class="form-group">
+
+                <label for="status">
+                    Status
+                </label>
+
+                <select
+                    id="status"
+                    name="status"
+                >
+
+                    <option value="">
+                        All statuses
+                    </option>
+
+                    <?php foreach (
+                        $allowedStatuses as $status
+                    ): ?>
+
+                        <option
+                            value="<?= htmlspecialchars(
+                                $status
+                            ); ?>"
+                            <?= $statusFilter === $status
+                                ? 'selected'
+                                : ''; ?>
+                        >
+                            <?= htmlspecialchars(
+                                $status
+                            ); ?>
+                        </option>
+
+                    <?php endforeach; ?>
+
+                </select>
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="category">
+                    Resource Category
+                </label>
+
+                <select
+                    id="category"
+                    name="category"
+                >
+
+                    <option value="">
+                        All categories
+                    </option>
+
+                    <?php foreach (
+                        $allowedCategories as $category
+                    ): ?>
+
+                        <option
+                            value="<?= htmlspecialchars(
+                                $category
+                            ); ?>"
+                            <?= $categoryFilter === $category
+                                ? 'selected'
+                                : ''; ?>
+                        >
+                            <?= htmlspecialchars(
+                                $category
+                            ); ?>
+                        </option>
+
+                    <?php endforeach; ?>
+
+                </select>
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="startDate">
+                    From Date
+                </label>
+
+                <input
+                    type="date"
+                    id="startDate"
+                    name="startDate"
+                    value="<?= htmlspecialchars(
+                        $startDate
+                    ); ?>"
+                >
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="endDate">
+                    To Date
+                </label>
+
+                <input
+                    type="date"
+                    id="endDate"
+                    name="endDate"
+                    value="<?= htmlspecialchars(
+                        $endDate
+                    ); ?>"
+                >
+
+            </div>
+
+        </div>
+
+        <div class="form-actions">
+
+            <a
+                href="reports.php"
+                class="btn btn-secondary"
+            >
+                Clear Filters
+            </a>
+
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+                Apply Filters
+            </button>
+
+        </div>
+
+    </form>
+
+</div>
+
+<div class="card table-card report-table-card">
+
+    <div class="table-card-header">
+
+        <div>
+
+            <h2>Requisition Report</h2>
+
+            <p>
+                <?= mysqli_num_rows(
+                    $reportResult
+                ); ?>
+                record(s) found
+            </p>
+
+        </div>
+
+    </div>
+
+    <div class="table-responsive">
+
+        <table class="data-table report-table">
+
+            <thead>
+
+                <tr>
+                    <th>Requisition</th>
+                    <th>Official</th>
+                    <th>Club</th>
+                    <th>Resource</th>
+                    <th>Quantity</th>
+                    <th>Required Period</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                </tr>
+
+            </thead>
+
+            <tbody>
+
+                <?php if (
+                    mysqli_num_rows(
+                        $reportResult
+                    ) > 0
+                ): ?>
+
+                    <?php while (
+                        $row =
+                            mysqli_fetch_assoc(
+                                $reportResult
+                            )
+                    ): ?>
+
+                        <?php
+
+                        $statusClass =
+                            match (
+                                $row['status']
+                            ) {
+                                'Approved' =>
+                                    'badge-success',
+
+                                'Rejected' =>
+                                    'badge-danger',
+
+                                'Pending' =>
+                                    'badge-warning',
+
+                                'Cancelled' =>
+                                    'badge-secondary',
+
+                                default =>
+                                    'badge-info'
+                            };
+
+                        ?>
+
+                        <tr>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $row[
+                                            'requisitionNumber'
+                                        ] ?? 'Not assigned'
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= htmlspecialchars(
+                                        $row['purpose']
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $row[
+                                            'officialName'
+                                        ]
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= htmlspecialchars(
+                                        $row['admNo']
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+                                <?= htmlspecialchars(
+                                    $row['clubName']
+                                ); ?>
+                            </td>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $row[
+                                            'resourceName'
+                                        ]
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= htmlspecialchars(
+                                        $row[
+                                            'resourceCategory'
+                                        ]
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+                                <?= (int) $row[
+                                    'quantityRequested'
+                                ]; ?>
+                            </td>
+
+                            <td>
+
+                                <?php if (
+                                    !empty(
+                                        $row['startDate']
+                                    ) &&
+                                    !empty(
+                                        $row['endDate']
+                                    )
+                                ): ?>
+
+                                    <?= date(
+                                        'd M Y',
+                                        strtotime(
+                                            $row['startDate']
+                                        )
+                                    ); ?>
+
+                                    <span class="table-date-separator">
+                                        –
+                                    </span>
+
+                                    <?= date(
+                                        'd M Y',
+                                        strtotime(
+                                            $row['endDate']
+                                        )
+                                    ); ?>
+
+                                <?php else: ?>
+
+                                    <span class="table-muted">
+                                        Not specified
+                                    </span>
+
+                                <?php endif; ?>
+
+                            </td>
+
+                            <td>
+                                <?= date(
+                                    'd M Y, H:i',
+                                    strtotime(
+                                        $row['requestTime']
+                                    )
+                                ); ?>
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="badge <?= $statusClass; ?>"
+                                >
+                                    <?= htmlspecialchars(
+                                        $row['status']
+                                    ); ?>
+                                </span>
+
+                            </td>
+
+                        </tr>
+
+                    <?php endwhile; ?>
+
+                <?php else: ?>
+
+                    <tr>
+
+                        <td
+                            colspan="8"
+                            class="empty-state"
+                        >
+
+                            <strong>
+                                No requisitions found
+                            </strong>
+
+                            <p>
+                                No records match the selected
+                                filters.
+                            </p>
+
+                        </td>
+
+                    </tr>
+
+                <?php endif; ?>
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
 <?php
 
-mysqli_stmt_close($reportStmt);
+mysqli_stmt_close(
+    $reportStmt
+);
 
 require_once '../includes/footer.php';
 

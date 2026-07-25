@@ -1,202 +1,530 @@
 <?php
 
-// error_reporting(E_ALL);
-// ini_set('display_errors', '1')
-
 require_once '../includes/session.php';
+require_once '../config/db.php';
 
-if ($_SESSION['role'] != 'admin') {
-    header("Location: ../login.php");
+if (
+    !isset($_SESSION['role']) ||
+    $_SESSION['role'] !== 'admin'
+) {
+    header('Location: ../login.php');
     exit();
 }
 
-require_once '../config/db.php';
-require_once '../includes/header.php';
-require_once '../includes/sidebar.php';
+$pageTitle = 'Admin Dashboard';
 
-/* Dashboard Statistics */
+function getDashboardCount(
+    mysqli $conn,
+    string $sql
+): int {
 
-$clubs = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total FROM clubs"))['total'];
+    $result = mysqli_query($conn, $sql);
 
-$students = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total FROM club_officials"))['total'];
+    if (!$result) {
+        return 0;
+    }
 
-$officers = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total FROM officers"))['total'];
+    $row = mysqli_fetch_row($result);
 
-$resources = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total FROM resources"))['total'];
+    return (int) ($row[0] ?? 0);
+}
 
-$pending = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total
-FROM requisitions
-WHERE status='Pending'"))['total'];
+$clubCount = getDashboardCount(
+    $conn,
+    "SELECT COUNT(*) FROM clubs"
+);
 
-$approved = mysqli_fetch_assoc(mysqli_query($conn,
-"SELECT COUNT(*) total
-FROM requisitions
-WHERE status='Approved'"))['total'];
+$officialCount = getDashboardCount(
+    $conn,
+    "SELECT COUNT(*) FROM club_officials"
+);
 
-$recent = mysqli_query(
+$officerCount = getDashboardCount(
+    $conn,
+    "SELECT COUNT(*) FROM officers"
+);
+
+$resourceCount = getDashboardCount(
+    $conn,
+    "SELECT COUNT(*) FROM resources"
+);
+
+$pendingCount = getDashboardCount(
     $conn,
     "
-        SELECT
-            r.requisitionID,
-            r.requisitionNumber,
-            r.requestTime,
-            r.status,
-            co.officialName,
-            c.clubName,
-            res.resourceName
-        FROM requisitions r
-
-        INNER JOIN club_officials co
-            ON r.submittedByAdmNo = co.admNo
-
-        INNER JOIN clubs c
-            ON co.clubNumber = c.clubNumber
-
-        INNER JOIN resources res
-            ON r.resourceID = res.resourceID
-
-        ORDER BY r.requestTime DESC
-        LIMIT 5
+        SELECT COUNT(*)
+        FROM requisitions
+        WHERE status = 'Pending'
     "
 );
 
-if (!$recent) {
-    die('Recent requisitions query failed: ' . mysqli_error($conn));
-}
+$approvedCount = getDashboardCount(
+    $conn,
+    "
+        SELECT COUNT(*)
+        FROM requisitions
+        WHERE status = 'Approved'
+    "
+);
 
+$rejectedCount = getDashboardCount(
+    $conn,
+    "
+        SELECT COUNT(*)
+        FROM requisitions
+        WHERE status = 'Rejected'
+    "
+);
+
+$latestSql = "
+    SELECT
+        r.requisitionID,
+        r.requisitionNumber,
+        r.requestTime,
+        r.status,
+        r.quantityRequested,
+
+        rs.resourceName,
+        rs.resourceCategory,
+
+        co.officialName,
+        c.clubName
+
+    FROM requisitions r
+
+    INNER JOIN resources rs
+        ON r.resourceID = rs.resourceID
+
+    INNER JOIN club_officials co
+        ON r.submittedByAdmNo = co.admNo
+
+    INNER JOIN clubs c
+        ON co.clubNumber = c.clubNumber
+
+    ORDER BY r.requestTime DESC
+
+    LIMIT 6
+";
+
+$latestResult = mysqli_query(
+    $conn,
+    $latestSql
+);
+
+require_once '../includes/header.php';
 ?>
 
-<div class="main">
+<div class="page-header">
 
-<h1>Admin Dashboard</h1>
+    <div>
+        <h1>Dashboard</h1>
 
-<div class="dashboard-grid">
-
-<div class="card">
-<h3>Clubs</h3>
-<h1><?= $clubs ?></h1>
-</div>
-
-<div class="card">
-    <h3>Club Officials</h3>
-    <h1><?= (int) $officials; ?></h1>
-</div>
-
-<div class="card">
-<h3>Officers</h3>
-<h1><?= $officers ?></h1>
-</div>
-
-<div class="card">
-<h3>Resources</h3>
-<h1><?= $resources ?></h1>
-</div>
-
-<div class="card">
-<h3>Pending Requisitions</h3>
-<h1><?= $pending ?></h1>
-</div>
-
-<div class="card">
-    <h3>Rejected Requisitions</h3>
-    <h1><?= (int) $rejected; ?></h1>
-</div>
-
-<div class="card">
-<h3>Approved Requisitions</h3>
-<h1><?= $approved ?></h1>
-</div>
+        <p>
+            Monitor resources, users and requisition activity.
+        </p>
+    </div>
 
 </div>
 
-<br>
+<div class="dashboard-welcome">
 
-<div class="card">
+    <div>
 
-<h2>Recent Requisitions</h2>
+        <span class="dashboard-welcome-label">
+            Administration overview
+        </span>
 
-<table class="data-table">
+        <!-- <h2>
+            Welcome back,
+            <?= htmlspecialchars(
+                $_SESSION['username'] ?? 'Administrator'
+            ); ?>
+        </h2> -->
 
-    <thead>
-        <tr>
-            <th>Requisition</th>
-            <th>Club</th>
-            <th>Submitted By</th>
-            <th>Resource</th>
-            <th>Status</th>
-            <th>Date</th>
-        </tr>
-    </thead>
+        <!-- <p>
+            Manage institutional resources and monitor
+            requisition approvals from one place.
+        </p> -->
 
-    <tbody>
+    </div>
 
-        <?php if (mysqli_num_rows($recent) > 0): ?>
+</div>
 
-            <?php while ($row = mysqli_fetch_assoc($recent)): ?>
+<div class="dashboard-stat-grid dashboard-stat-grid-admin">
+
+    <a
+        href="clubs.php"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon">
+            C
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Clubs
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $clubCount; ?>
+            </strong>
+
+            <small>
+                Registered clubs
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="officials.php"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon">
+            CO
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Club Officials
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $officialCount; ?>
+            </strong>
+
+            <small>
+                Registered officials
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="officers.php"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon">
+            O
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Officers
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $officerCount; ?>
+            </strong>
+
+            <small>
+                Approval officers
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="resources.php"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon">
+            R
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Resources
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $resourceCount; ?>
+            </strong>
+
+            <small>
+                Managed resources
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="reports.php?status=Pending"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon dashboard-icon-warning">
+            P
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Pending
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $pendingCount; ?>
+            </strong>
+
+            <small>
+                Awaiting approval
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="reports.php?status=Approved"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon dashboard-icon-success">
+            A
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Approved
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $approvedCount; ?>
+            </strong>
+
+            <small>
+                Completed approvals
+            </small>
+
+        </div>
+
+    </a>
+
+    <a
+        href="reports.php?status=Rejected"
+        class="dashboard-stat-tile"
+    >
+
+        <div class="dashboard-stat-icon dashboard-icon-danger">
+            R
+        </div>
+
+        <div class="dashboard-stat-content">
+
+            <span class="dashboard-stat-label">
+                Rejected
+            </span>
+
+            <strong class="dashboard-stat-value">
+                <?= $rejectedCount; ?>
+            </strong>
+
+            <small>
+                Declined requests
+            </small>
+
+        </div>
+
+    </a>
+
+</div>
+
+<div class="card dashboard-table-card">
+
+    <div class="section-header-row">
+
+        <div class="section-header">
+
+            <h2>Latest Requisitions</h2>
+
+            <p>
+                Most recently submitted resource requests.
+            </p>
+
+        </div>
+
+        <a
+            href="reports.php"
+            class="btn btn-secondary btn-small"
+        >
+            View Reports
+        </a>
+
+    </div>
+
+    <div class="table-responsive">
+
+        <table class="data-table dashboard-data-table">
+
+            <thead>
 
                 <tr>
-                    <td>
-                        <?php
-                        if (!empty($row['requisitionNumber'])) {
-                            echo htmlspecialchars($row['requisitionNumber']);
-                        } else {
-                            echo 'RQ-' . str_pad(
-                                $row['requisitionID'],
-                                3,
-                                '0',
-                                STR_PAD_LEFT
-                            );
-                        }
-                        ?>
-                    </td>
-
-                    <td>
-                        <?= htmlspecialchars($row['clubName']); ?>
-                    </td>
-
-                    <td>
-                        <?= htmlspecialchars($row['officialName']); ?>
-                    </td>
-
-                    <td>
-                        <?= htmlspecialchars($row['resourceName']); ?>
-                    </td>
-
-                    <td>
-                        <?= htmlspecialchars($row['status']); ?>
-                    </td>
-
-                    <td>
-                        <?= date(
-                            'd M Y',
-                            strtotime($row['requestTime'])
-                        ); ?>
-                    </td>
+                    <th>Requisition</th>
+                    <th>Official</th>
+                    <th>Club</th>
+                    <th>Resource</th>
+                    <th>Quantity</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
                 </tr>
 
-            <?php endwhile; ?>
+            </thead>
 
-        <?php else: ?>
+            <tbody>
 
-            <tr>
-                <td colspan="6" class="empty-state">
-                    No requisitions have been submitted yet.
-                </td>
-            </tr>
+                <?php if (
+                    $latestResult &&
+                    mysqli_num_rows($latestResult) > 0
+                ): ?>
 
-        <?php endif; ?>
+                    <?php while (
+                        $requisition =
+                            mysqli_fetch_assoc(
+                                $latestResult
+                            )
+                    ): ?>
 
-    </tbody>
+                        <?php
+                        $statusClass =
+                            match (
+                                $requisition['status']
+                            ) {
+                                'Approved' =>
+                                    'badge-success',
 
-</table>
+                                'Rejected' =>
+                                    'badge-danger',
+
+                                'Pending' =>
+                                    'badge-warning',
+
+                                'Cancelled' =>
+                                    'badge-secondary',
+
+                                default =>
+                                    'badge-info'
+                            };
+                        ?>
+
+                        <tr>
+
+                            <td>
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $requisition[
+                                            'requisitionNumber'
+                                        ]
+                                    ); ?>
+                                </strong>
+                            </td>
+
+                            <td>
+                                <?= htmlspecialchars(
+                                    $requisition[
+                                        'officialName'
+                                    ]
+                                ); ?>
+                            </td>
+
+                            <td>
+                                <?= htmlspecialchars(
+                                    $requisition[
+                                        'clubName'
+                                    ]
+                                ); ?>
+                            </td>
+
+                            <td>
+
+                                <strong>
+                                    <?= htmlspecialchars(
+                                        $requisition[
+                                            'resourceName'
+                                        ]
+                                    ); ?>
+                                </strong>
+
+                                <small class="table-subtext">
+                                    <?= htmlspecialchars(
+                                        $requisition[
+                                            'resourceCategory'
+                                        ]
+                                    ); ?>
+                                </small>
+
+                            </td>
+
+                            <td>
+                                <?= (int) $requisition[
+                                    'quantityRequested'
+                                ]; ?>
+                            </td>
+
+                            <td>
+                                <?= date(
+                                    'd M Y, H:i',
+                                    strtotime(
+                                        $requisition[
+                                            'requestTime'
+                                        ]
+                                    )
+                                ); ?>
+                            </td>
+
+                            <td>
+
+                                <span
+                                    class="badge <?= $statusClass; ?>"
+                                >
+                                    <?= htmlspecialchars(
+                                        $requisition[
+                                            'status'
+                                        ]
+                                    ); ?>
+                                </span>
+
+                            </td>
+
+                        </tr>
+
+                    <?php endwhile; ?>
+
+                <?php else: ?>
+
+                    <tr>
+                        <td
+                            colspan="7"
+                            class="empty-state"
+                        >
+                            No requisitions have been
+                            submitted yet.
+                        </td>
+                    </tr>
+
+                <?php endif; ?>
+
+            </tbody>
+
+        </table>
+
+    </div>
 
 </div>
 
-</div>
-
-<?php require_once '../includes/footer.php'; ?>
+<?php
+require_once '../includes/footer.php';
+?>

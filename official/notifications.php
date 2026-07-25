@@ -3,12 +3,6 @@
 require_once '../includes/session.php';
 require_once '../config/db.php';
 
-/*
-|--------------------------------------------------------------------------
-| Protect page
-|--------------------------------------------------------------------------
-*/
-
 if (
     !isset($_SESSION['role']) ||
     $_SESSION['role'] !== 'official'
@@ -17,47 +11,41 @@ if (
     exit();
 }
 
-$userID = (int) ($_SESSION['userID'] ?? 0);
+$userID =
+    (int) ($_SESSION['userID'] ?? 0);
 
 if ($userID <= 0) {
     session_destroy();
+
     header('Location: ../login.php');
     exit();
 }
 
+$pageTitle = 'Notifications';
+
 /*
 |--------------------------------------------------------------------------
-| Retrieve logged-in official
+| Get official profile
 |--------------------------------------------------------------------------
 */
 
 $officialSql = "
     SELECT
-        co.admNo,
-        co.officialName,
-        co.position,
-        co.clubNumber,
-        c.clubName
-    FROM club_officials co
-
-    INNER JOIN clubs c
-        ON co.clubNumber = c.clubNumber
-
-    WHERE co.userID = ?
-
+        admNo,
+        officialName
+    FROM club_officials
+    WHERE userID = ?
     LIMIT 1
 ";
 
-$officialStmt = mysqli_prepare(
-    $conn,
-    $officialSql
-);
+$officialStmt =
+    mysqli_prepare(
+        $conn,
+        $officialSql
+    );
 
 if (!$officialStmt) {
-    die(
-        'Unable to prepare official profile query: ' .
-        mysqli_error($conn)
-    );
+    die('Unable to prepare official profile query.');
 }
 
 mysqli_stmt_bind_param(
@@ -66,34 +54,41 @@ mysqli_stmt_bind_param(
     $userID
 );
 
-mysqli_stmt_execute($officialStmt);
+mysqli_stmt_execute(
+    $officialStmt
+);
 
 $officialResult =
-    mysqli_stmt_get_result($officialStmt);
+    mysqli_stmt_get_result(
+        $officialStmt
+    );
 
 $official =
-    mysqli_fetch_assoc($officialResult);
+    mysqli_fetch_assoc(
+        $officialResult
+    );
 
-mysqli_stmt_close($officialStmt);
+mysqli_stmt_close(
+    $officialStmt
+);
 
 if (!$official) {
-    die(
-        'Your club official profile could not be found. ' .
-        'Contact the administrator.'
-    );
+    die('Official profile not found.');
 }
 
-$admNo = $official['admNo'];
+$admNo =
+    $official['admNo'];
 
 /*
 |--------------------------------------------------------------------------
-| Filter
+| Validate notification filter
 |--------------------------------------------------------------------------
 */
 
-$filter = trim(
-    $_GET['filter'] ?? 'all'
-);
+$filter =
+    strtolower(
+        trim($_GET['filter'] ?? 'all')
+    );
 
 $allowedFilters = [
     'all',
@@ -113,13 +108,13 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| Notification counts
+| Get notification counts
 |--------------------------------------------------------------------------
 */
 
 $countSql = "
     SELECT
-        COUNT(*) AS total,
+        COUNT(*) AS totalNotifications,
 
         SUM(
             CASE
@@ -127,7 +122,7 @@ $countSql = "
                 THEN 1
                 ELSE 0
             END
-        ) AS unread,
+        ) AS unreadNotifications,
 
         SUM(
             CASE
@@ -135,24 +130,18 @@ $countSql = "
                 THEN 1
                 ELSE 0
             END
-        ) AS readCount
+        ) AS readNotifications
 
     FROM notifications
 
     WHERE recipientAdmNo = ?
 ";
 
-$countStmt = mysqli_prepare(
-    $conn,
-    $countSql
-);
-
-if (!$countStmt) {
-    die(
-        'Unable to prepare notification totals: ' .
-        mysqli_error($conn)
+$countStmt =
+    mysqli_prepare(
+        $conn,
+        $countSql
     );
-}
 
 mysqli_stmt_bind_param(
     $countStmt,
@@ -160,28 +149,48 @@ mysqli_stmt_bind_param(
     $admNo
 );
 
-mysqli_stmt_execute($countStmt);
+mysqli_stmt_execute(
+    $countStmt
+);
 
 $countResult =
-    mysqli_stmt_get_result($countStmt);
+    mysqli_stmt_get_result(
+        $countStmt
+    );
 
-$countRow =
-    mysqli_fetch_assoc($countResult);
+$notificationCounts =
+    mysqli_fetch_assoc(
+        $countResult
+    );
 
-mysqli_stmt_close($countStmt);
+mysqli_stmt_close(
+    $countStmt
+);
 
 $totalNotifications =
-    (int) ($countRow['total'] ?? 0);
+    (int) (
+        $notificationCounts[
+            'totalNotifications'
+        ] ?? 0
+    );
 
 $unreadNotifications =
-    (int) ($countRow['unread'] ?? 0);
+    (int) (
+        $notificationCounts[
+            'unreadNotifications'
+        ] ?? 0
+    );
 
 $readNotifications =
-    (int) ($countRow['readCount'] ?? 0);
+    (int) (
+        $notificationCounts[
+            'readNotifications'
+        ] ?? 0
+    );
 
 /*
 |--------------------------------------------------------------------------
-| Retrieve notifications
+| Get notifications
 |--------------------------------------------------------------------------
 */
 
@@ -197,28 +206,36 @@ $notificationSql = "
         r.requisitionNumber,
         r.status AS requisitionStatus,
 
-        res.resourceName,
+        rs.resourceName,
+        rs.resourceCategory,
 
         a.status AS approvalStatus,
-        a.comments AS approvalComments,
-        a.approvalTime,
+        a.approvalOrder,
+        a.actedBy,
 
-        o.officerName,
-        o.officerRole
+        actingOfficer.officerName
+            AS actingOfficerName,
+
+        actingOfficer.officerRole
+            AS actingOfficerRole
 
     FROM notifications n
 
     INNER JOIN requisitions r
-        ON n.requisitionID = r.requisitionID
+        ON n.requisitionID =
+           r.requisitionID
 
-    INNER JOIN resources res
-        ON r.resourceID = res.resourceID
+    INNER JOIN resources rs
+        ON r.resourceID =
+           rs.resourceID
 
     LEFT JOIN approvals a
-        ON n.approvalNumber = a.approvalNumber
+        ON n.approvalNumber =
+           a.approvalNumber
 
-    LEFT JOIN officers o
-        ON a.officerStaffNo = o.officerStaffNo
+    LEFT JOIN officers actingOfficer
+        ON a.actedBy =
+           actingOfficer.officerStaffNo
 
     WHERE n.recipientAdmNo = ?
 ";
@@ -240,16 +257,14 @@ $notificationSql .= "
     ORDER BY n.createdAt DESC
 ";
 
-$notificationStmt = mysqli_prepare(
-    $conn,
-    $notificationSql
-);
+$notificationStmt =
+    mysqli_prepare(
+        $conn,
+        $notificationSql
+    );
 
 if (!$notificationStmt) {
-    die(
-        'Unable to prepare notifications query: ' .
-        mysqli_error($conn)
-    );
+    die('Unable to prepare notifications query.');
 }
 
 mysqli_stmt_bind_param(
@@ -258,120 +273,206 @@ mysqli_stmt_bind_param(
     $admNo
 );
 
-mysqli_stmt_execute($notificationStmt);
+mysqli_stmt_execute(
+    $notificationStmt
+);
 
 $notificationResult =
-    mysqli_stmt_get_result($notificationStmt);
+    mysqli_stmt_get_result(
+        $notificationStmt
+    );
 
 require_once '../includes/header.php';
-require_once '../includes/sidebar.php';
 ?>
 
-<div class="main-content">
+<div class="page-header">
 
-    <div class="page-header">
+    <div>
+
+        <h1>Notifications</h1>
+
+        <p>
+            View updates about your submitted requisitions.
+        </p>
+
+    </div>
+
+    <?php if ($unreadNotifications > 0): ?>
+
+        <form
+            method="POST"
+            action="mark_all_notifications_read.php"
+        >
+
+            <button
+                type="submit"
+                class="btn btn-secondary"
+            >
+                Mark All as Read
+            </button>
+
+        </form>
+
+    <?php endif; ?>
+
+</div>
+
+<?php if (
+    isset($_SESSION['success'])
+): ?>
+
+    <div class="alert alert-success">
+        <?= htmlspecialchars(
+            $_SESSION['success']
+        ); ?>
+    </div>
+
+    <?php unset(
+        $_SESSION['success']
+    ); ?>
+
+<?php endif; ?>
+
+<?php if (
+    isset($_SESSION['error'])
+): ?>
+
+    <div class="alert alert-danger">
+        <?= htmlspecialchars(
+            $_SESSION['error']
+        ); ?>
+    </div>
+
+    <?php unset(
+        $_SESSION['error']
+    ); ?>
+
+<?php endif; ?>
+
+<div class="notification-summary-grid">
+
+    <a
+        href="notifications.php?filter=all"
+        class="notification-summary-card <?= $filter ===
+        'all'
+            ? 'active'
+            : ''; ?>"
+    >
+
+        <div class="notification-summary-icon">
+            A
+        </div>
 
         <div>
-            <h1>Notifications</h1>
 
-            <p>
-                View updates for requisitions submitted for
-                <?= htmlspecialchars(
-                    $official['clubName']
-                ); ?>.
-            </p>
-        </div>
+            <span>All Notifications</span>
 
-        <?php if ($unreadNotifications > 0): ?>
-
-            <form
-                method="POST"
-                action="mark_all_notifications_read.php"
-            >
-
-                <button
-                    type="submit"
-                    class="btn btn-secondary"
-                >
-                    Mark All as Read
-                </button>
-
-            </form>
-
-        <?php endif; ?>
-
-    </div>
-
-    <?php if (isset($_SESSION['success'])): ?>
-
-        <div class="alert alert-success">
-            <?= htmlspecialchars(
-                $_SESSION['success']
-            ); ?>
-        </div>
-
-        <?php unset($_SESSION['success']); ?>
-
-    <?php endif; ?>
-
-    <?php if (isset($_SESSION['error'])): ?>
-
-        <div class="alert alert-danger">
-            <?= htmlspecialchars(
-                $_SESSION['error']
-            ); ?>
-        </div>
-
-        <?php unset($_SESSION['error']); ?>
-
-    <?php endif; ?>
-
-    <!-- Notification totals -->
-
-    <div class="stats-grid">
-
-        <a
-            href="notifications.php?filter=all"
-            class="stat-card notification-stat-link"
-        >
-            <h3>All Notifications</h3>
-
-            <div class="stat-number">
+            <strong>
                 <?= $totalNotifications; ?>
-            </div>
-        </a>
+            </strong>
 
-        <a
-            href="notifications.php?filter=unread"
-            class="stat-card notification-stat-link"
-        >
-            <h3>Unread</h3>
+        </div>
 
-            <div class="stat-number">
+    </a>
+
+    <a
+        href="notifications.php?filter=unread"
+        class="notification-summary-card notification-summary-unread <?= $filter ===
+        'unread'
+            ? 'active'
+            : ''; ?>"
+    >
+
+        <div class="notification-summary-icon">
+            U
+        </div>
+
+        <div>
+
+            <span>Unread</span>
+
+            <strong>
                 <?= $unreadNotifications; ?>
-            </div>
-        </a>
+            </strong>
 
-        <a
-            href="notifications.php?filter=read"
-            class="stat-card notification-stat-link"
-        >
-            <h3>Read</h3>
+        </div>
 
-            <div class="stat-number">
+    </a>
+
+    <a
+        href="notifications.php?filter=read"
+        class="notification-summary-card notification-summary-read <?= $filter ===
+        'read'
+            ? 'active'
+            : ''; ?>"
+    >
+
+        <div class="notification-summary-icon">
+            R
+        </div>
+
+        <div>
+
+            <span>Read</span>
+
+            <strong>
                 <?= $readNotifications; ?>
-            </div>
-        </a>
+            </strong>
+
+        </div>
+
+    </a>
+
+</div>
+
+<div class="notification-toolbar">
+
+    <div>
+
+        <h2>
+
+            <?php if ($filter === 'unread'): ?>
+
+                Unread Notifications
+
+            <?php elseif ($filter === 'read'): ?>
+
+                Read Notifications
+
+            <?php else: ?>
+
+                All Notifications
+
+            <?php endif; ?>
+
+        </h2>
+
+        <p>
+
+            <?php if ($filter === 'unread'): ?>
+
+                Notifications that still require your attention.
+
+            <?php elseif ($filter === 'read'): ?>
+
+                Notifications you have already reviewed.
+
+            <?php else: ?>
+
+                All updates related to your requisitions.
+
+            <?php endif; ?>
+
+        </p>
 
     </div>
 
-    <!-- Filter tabs -->
-
-    <div class="notification-tabs">
+    <div class="notification-filter-buttons">
 
         <a
             href="notifications.php?filter=all"
-            class="<?= $filter === 'all'
+            class="filter-button <?= $filter ===
+            'all'
                 ? 'active'
                 : ''; ?>"
         >
@@ -380,7 +481,8 @@ require_once '../includes/sidebar.php';
 
         <a
             href="notifications.php?filter=unread"
-            class="<?= $filter === 'unread'
+            class="filter-button <?= $filter ===
+            'unread'
                 ? 'active'
                 : ''; ?>"
         >
@@ -389,7 +491,8 @@ require_once '../includes/sidebar.php';
 
         <a
             href="notifications.php?filter=read"
-            class="<?= $filter === 'read'
+            class="filter-button <?= $filter ===
+            'read'
                 ? 'active'
                 : ''; ?>"
         >
@@ -398,299 +501,318 @@ require_once '../includes/sidebar.php';
 
     </div>
 
-    <!-- Notifications list -->
+</div>
 
-    <div class="notification-list">
+<div class="notification-list">
 
-        <?php if (
-            mysqli_num_rows(
-                $notificationResult
-            ) > 0
+    <?php if (
+        mysqli_num_rows(
+            $notificationResult
+        ) > 0
+    ): ?>
+
+        <?php while (
+            $notification =
+                mysqli_fetch_assoc(
+                    $notificationResult
+                )
         ): ?>
 
-            <?php while (
-                $notification =
-                    mysqli_fetch_assoc(
-                        $notificationResult
-                    )
-            ): ?>
+            <?php
 
-                <?php
+            $isUnread =
+                $notification['isRead'] === 'No';
 
-                $isUnread =
-                    $notification['isRead'] === 'No';
+            $status =
+                $notification[
+                    'requisitionStatus'
+                ];
 
-                $requisitionNumber =
-                    !empty(
-                        $notification[
-                            'requisitionNumber'
-                        ]
-                    )
-                        ? $notification[
-                            'requisitionNumber'
-                        ]
-                        : 'REQ-' .
-                          str_pad(
-                              $notification[
-                                  'requisitionID'
-                              ],
-                              4,
-                              '0',
-                              STR_PAD_LEFT
-                          );
+            $statusClass =
+                match ($status) {
 
-                $badgeClass =
-                    'badge-secondary';
+                    'Approved' =>
+                        'badge-success',
 
-                if (
-                    $notification[
-                        'requisitionStatus'
-                    ] === 'Pending'
-                ) {
-                    $badgeClass =
-                        'badge-warning';
+                    'Rejected' =>
+                        'badge-danger',
 
-                } elseif (
-                    $notification[
-                        'requisitionStatus'
-                    ] === 'Approved'
-                ) {
-                    $badgeClass =
-                        'badge-success';
+                    'Pending' =>
+                        'badge-warning',
 
-                } elseif (
-                    $notification[
-                        'requisitionStatus'
-                    ] === 'Rejected'
-                ) {
-                    $badgeClass =
-                        'badge-danger';
-                }
+                    'Cancelled' =>
+                        'badge-secondary',
 
-                ?>
+                    default =>
+                        'badge-info'
+                };
 
-                <div
-                    class="notification-card <?= $isUnread
-                        ? 'notification-unread'
-                        : ''; ?>"
-                >
+            $notificationTypeClass =
+                match ($status) {
 
-                    <div class="notification-indicator">
+                    'Approved' =>
+                        'notification-success',
 
-                        <?php if ($isUnread): ?>
+                    'Rejected' =>
+                        'notification-danger',
 
-                            <span
-                                class="unread-dot"
-                                title="Unread"
-                            ></span>
+                    'Cancelled' =>
+                        'notification-neutral',
 
-                        <?php endif; ?>
+                    default =>
+                        'notification-pending'
+                };
 
-                    </div>
+            ?>
 
-                    <div class="notification-content">
+            <article
+                class="notification-card <?= $isUnread
+                    ? 'unread'
+                    : 'read'; ?> <?= $notificationTypeClass; ?>"
+            >
 
-                        <div class="notification-header">
+                <div class="notification-card-marker">
 
-                            <div>
+                    <?php if ($status === 'Approved'): ?>
+
+                        ✓
+
+                    <?php elseif ($status === 'Rejected'): ?>
+
+                        !
+
+                    <?php elseif ($status === 'Cancelled'): ?>
+
+                        ×
+
+                    <?php else: ?>
+
+                        i
+
+                    <?php endif; ?>
+
+                </div>
+
+                <div class="notification-card-body">
+
+                    <div class="notification-card-header">
+
+                        <div>
+
+                            <div class="notification-title-row">
 
                                 <h3>
                                     <?= htmlspecialchars(
-                                        $requisitionNumber
+                                        $notification[
+                                            'requisitionNumber'
+                                        ]
                                     ); ?>
                                 </h3>
 
-                                <p class="text-muted">
-                                    <?= htmlspecialchars(
-                                        $notification[
-                                            'resourceName'
-                                        ]
-                                    ); ?>
-                                </p>
-
-                            </div>
-
-                            <span
-                                class="badge <?= $badgeClass; ?>"
-                            >
-                                <?= htmlspecialchars(
-                                    $notification[
-                                        'requisitionStatus'
-                                    ]
-                                ); ?>
-                            </span>
-
-                        </div>
-
-                        <p class="notification-message">
-                            <?= nl2br(
-                                htmlspecialchars(
-                                    $notification[
-                                        'notifDescription'
-                                    ]
-                                )
-                            ); ?>
-                        </p>
-
-                        <?php if (
-                            !empty(
-                                $notification[
-                                    'officerName'
-                                ]
-                            )
-                        ): ?>
-
-                            <div class="notification-officer">
-
-                                <strong>
-                                    Officer
-                                </strong>
-
-                                <p>
-                                    <?= htmlspecialchars(
-                                        $notification[
-                                            'officerName'
-                                        ]
-                                    ); ?>
-                                    —
-                                    <?= htmlspecialchars(
-                                        $notification[
-                                            'officerRole'
-                                        ]
-                                    ); ?>
-                                </p>
-
-                            </div>
-
-                        <?php endif; ?>
-
-                        <?php if (
-                            !empty(
-                                $notification[
-                                    'approvalComments'
-                                ]
-                            )
-                        ): ?>
-
-                            <div class="notification-comments">
-
-                                <strong>
-                                    Approval Comments
-                                </strong>
-
-                                <p>
-                                    <?= nl2br(
-                                        htmlspecialchars(
-                                            $notification[
-                                                'approvalComments'
-                                            ]
-                                        )
-                                    ); ?>
-                                </p>
-
-                            </div>
-
-                        <?php endif; ?>
-
-                        <div class="notification-footer">
-
-                            <small class="text-muted">
-                                <?= date(
-                                    'd M Y, H:i',
-                                    strtotime(
-                                        $notification[
-                                            'createdAt'
-                                        ]
-                                    )
-                                ); ?>
-                            </small>
-
-                            <div class="notification-actions">
-
-                                <a
-                                    href="my_requisitions.php"
-                                    class="btn btn-secondary btn-small"
-                                >
-                                    View Requisition
-                                </a>
-
                                 <?php if ($isUnread): ?>
 
-                                    <form
-                                        method="POST"
-                                        action="mark_notification_read.php"
-                                    >
-
-                                        <input
-                                            type="hidden"
-                                            name="notifID"
-                                            value="<?= (int) $notification[
-                                                'notifID'
-                                            ]; ?>"
-                                        >
-
-                                        <button
-                                            type="submit"
-                                            class="btn btn-primary btn-small"
-                                        >
-                                            Mark as Read
-                                        </button>
-
-                                    </form>
+                                    <span
+                                        class="notification-unread-dot"
+                                        title="Unread notification"
+                                    ></span>
 
                                 <?php endif; ?>
 
                             </div>
 
+                            <div class="notification-meta-row">
+
+                                <span>
+                                    <?= htmlspecialchars(
+                                        $notification[
+                                            'resourceName'
+                                        ]
+                                    ); ?>
+                                </span>
+
+                                <span class="notification-meta-separator">
+                                    •
+                                </span>
+
+                                <span>
+                                    <?= htmlspecialchars(
+                                        $notification[
+                                            'resourceCategory'
+                                        ]
+                                    ); ?>
+                                </span>
+
+                                <span class="notification-meta-separator">
+                                    •
+                                </span>
+
+                                <span>
+                                    <?= date(
+                                        'd M Y, H:i',
+                                        strtotime(
+                                            $notification[
+                                                'createdAt'
+                                            ]
+                                        )
+                                    ); ?>
+                                </span>
+
+                            </div>
+
                         </div>
+
+                        <span
+                            class="badge <?= $statusClass; ?>"
+                        >
+                            <?= htmlspecialchars(
+                                $status
+                            ); ?>
+                        </span>
+
+                    </div>
+
+                    <p class="notification-message">
+                        <?= htmlspecialchars(
+                            $notification[
+                                'notifDescription'
+                            ]
+                        ); ?>
+                    </p>
+
+                    <?php if (
+                        !empty(
+                            $notification[
+                                'actingOfficerName'
+                            ]
+                        )
+                    ): ?>
+
+                        <div class="notification-officer">
+
+                            <span>Performed by</span>
+
+                            <strong>
+                                <?= htmlspecialchars(
+                                    $notification[
+                                        'actingOfficerName'
+                                    ]
+                                ); ?>
+                            </strong>
+
+                            <?php if (
+                                !empty(
+                                    $notification[
+                                        'actingOfficerRole'
+                                    ]
+                                )
+                            ): ?>
+
+                                <small>
+                                    <?= htmlspecialchars(
+                                        $notification[
+                                            'actingOfficerRole'
+                                        ]
+                                    ); ?>
+                                </small>
+
+                            <?php endif; ?>
+
+                        </div>
+
+                    <?php endif; ?>
+
+                    <div class="notification-card-actions">
+
+                        <div class="notification-card-actions-left">
+
+                            <a
+                                href="view_requisition.php?id=<?= (int) $notification[
+                                    'requisitionID'
+                                ]; ?>"
+                                class="btn btn-secondary btn-small"
+                            >
+                                View Requisition
+                            </a>
+
+                        </div>
+
+                        <?php if ($isUnread): ?>
+
+                            <div class="notification-card-actions-right">
+
+                                <form
+                                    method="POST"
+                                    action="mark_notification_read.php"
+                                >
+
+                                    <input
+                                        type="hidden"
+                                        name="notifID"
+                                        value="<?= (int) $notification[
+                                            'notifID'
+                                        ]; ?>"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="btn btn-primary btn-small"
+                                    >
+                                        Mark as Read
+                                    </button>
+
+                                </form>
+
+                            </div>
+
+                        <?php endif; ?>
 
                     </div>
 
                 </div>
 
-            <?php endwhile; ?>
+            </article>
 
-        <?php else: ?>
+        <?php endwhile; ?>
 
-            <div class="card empty-state">
+    <?php else: ?>
 
-                <h2>No notifications found</h2>
+        <div class="card notification-empty-state">
 
-                <p>
-                    <?php if ($filter === 'unread'): ?>
-
-                        You do not have any unread notifications.
-
-                    <?php elseif ($filter === 'read'): ?>
-
-                        You do not have any read notifications.
-
-                    <?php else: ?>
-
-                        Updates about your requisitions will appear
-                        here.
-
-                    <?php endif; ?>
-                </p>
-
-                <a
-                    href="my_requisitions.php"
-                    class="btn btn-primary"
-                >
-                    View My Requisitions
-                </a>
-
+            <div class="notification-empty-icon">
+                ✓
             </div>
 
-        <?php endif; ?>
+            <h2>No notifications found</h2>
 
-    </div>
+            <p>
+
+                <?php if ($filter === 'unread'): ?>
+
+                    You have no unread notifications.
+
+                <?php elseif ($filter === 'read'): ?>
+
+                    You have no read notifications.
+
+                <?php else: ?>
+
+                    You have not received any notifications yet.
+
+                <?php endif; ?>
+
+            </p>
+
+        </div>
+
+    <?php endif; ?>
 
 </div>
 
 <?php
 
-mysqli_stmt_close($notificationStmt);
+mysqli_stmt_close(
+    $notificationStmt
+);
 
 require_once '../includes/footer.php';
 
